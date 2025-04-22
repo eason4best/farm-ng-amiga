@@ -40,6 +40,7 @@ async def main() -> None:
     twist = Twist2d()
     twist.linear_velocity_x = LINEAR_VELOCITY
     twist.linear_velocity_x = clip(twist.linear_velocity_x, -MAX_LINEAR_VELOCITY_MPS, MAX_LINEAR_VELOCITY_MPS)
+    twist.angular_velocity = 0.0
 
     # create a client to the canbus service
     config: EventServiceConfig = proto_from_json_file(SERVICE_CONFIG_PATH, EventServiceConfig())
