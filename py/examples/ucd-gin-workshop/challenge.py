@@ -19,9 +19,6 @@ import time
 from pathlib import Path
 
 from farm_ng.canbus.canbus_pb2 import Twist2d
-from farm_ng.canbus.tool_control_pb2 import ActuatorCommands
-from farm_ng.canbus.tool_control_pb2 import HBridgeCommand
-from farm_ng.canbus.tool_control_pb2 import HBridgeCommandType
 from farm_ng.core.event_client import EventClient
 from farm_ng.core.event_service_pb2 import EventServiceConfig
 from farm_ng.core.events_file_reader import proto_from_json_file
@@ -31,17 +28,13 @@ from numpy import clip
 SERVICE_CONFIG_PATH = Path(__file__).parent / "service_config.json"
 MAX_LINEAR_VELOCITY_MPS = 5.0  # m/s
 LINEAR_VELOCITY = 1.0  # m/s
-HBRIDGE_ID = 0
-
 """
 Challenge: Robot Field Operations Sequence
 
 Your task is to create a script that will control a farm robot to:
 1. Drive forward 1 meter without any tool actions
-2. Stop and operate a tool in REVERSE direction for 10 seconds
-3. Drive forward 10 meters without tool action
-4. Stop and operate the tool in FORWARD direction for 10 seconds
-5. BIG STRETCH: Execute a turn around maneuver (180 degrees) with a radius of 2 meters
+2. Drive forward 10 meters without tool action
+3. Execute a turn around maneuver (180 degrees) with a radius of 1 meters
 
 The template below provides the basic structure and helper methods.
 You will need to implement the missing functionality and create the
@@ -66,20 +59,6 @@ async def send_twist_command(client: EventClient, linear_velocity: float, angula
     # 1. Create a Twist2d message
     # 2. Set the linear and angular velocities (make sure to clip the linear velocity)
     # 3. Send the command to the robot using the client
-    pass
-
-
-async def send_tool_command(client: EventClient, direction: str) -> None:
-    """Send a tool control command.
-
-    Args:
-        client: The event client connected to the canbus service.
-        direction: The direction to move the tool ("FORWARD" or "REVERSE").
-    """
-    # TODO: Implement this function
-    # 1. Convert the direction string to the appropriate HBridgeCommandType
-    # 2. Create an ActuatorCommands message with the appropriate HBridgeCommand
-    # 3. Send the command to the tool controller using the client
     pass
 
 
@@ -120,30 +99,13 @@ async def drive_arc(
     pass
 
 
-async def operate_tool(client: EventClient, direction: str, duration: float) -> None:
-    """Operate the tool in a specific direction for a duration.
-
-    Args:
-        client: The event client connected to the canbus service.
-        direction: The direction to move the tool ("FORWARD" or "REVERSE").
-        duration: The duration to operate the tool in seconds.
-    """
-
-    # TODO: Implement this function
-    # 1. Send continuous tool control commands for the specified duration
-    # 2. Stop the tool when the duration has elapsed
-    pass
-
-
 async def main() -> None:
     """Run the combined sequence of robot movement and tool operation.
 
     This is the main function that will execute the complete sequence:
-    1. Drive forward 1 meter
-    2. Operate tool in REVERSE for 10 seconds
-    3. Drive forward 10 meters
-    4. Operate tool in FORWARD for 10 seconds
-    5. Execute a pi turn with 2 meter radius
+    1. Drive forward 1 meter (line up robot)
+    2. Drive forward 10 meters
+    3. Execute a pi turn with 1 meter radius
     """
     # Create a client to the canbus service
     config: EventServiceConfig = proto_from_json_file(SERVICE_CONFIG_PATH, EventServiceConfig())
@@ -152,13 +114,9 @@ async def main() -> None:
     # TODO: Implement the sequence
     # Step 1: Drive forward 1 meter without tool action
 
-    # Step 2: Stop robot and operate tool in REVERSE for 10 seconds
+    # Step 2: Drive forward 10 meters
 
-    # Step 3: Drive forward 10 meters without tool action
-
-    # Step 4: Stop robot and operate tool in FORWARD for 10 seconds
-
-    # Step 5 (stretch): Make a turn around maneuver with radius of 2 meters
+    # Step 3: Make a turn around maneuver with radius of 1 meter
 
     print("\n--- Sequence completed ---")
 
