@@ -29,11 +29,17 @@ class TrackBuilder:
 
     def __init__(self, start: Pose3F64 | None = None) -> None:
         """Initialize the TrackBuilder."""
-        self._start: Pose3F64 = start if start is not None else Pose3F64()
+        if start is not None:
+            self._start: Pose3F64 = start
+        else:
+            zero_tangent = np.zeros((6, 1), dtype=np.float64)
+            self._start: Pose3F64 = Pose3F64(
+                a_from_b=Isometry3F64(), frame_a="world", frame_b="robot", tangent_of_b_in_a=zero_tangent
+            )
         self.track_waypoints: list[Pose3F64] = []
         self._segment_indices: list[int] = [0]
         self._loaded: bool = False
-        self.track_waypoints = [start]
+        self.track_waypoints = [self._start]
 
     @property
     def track(self) -> Track:
@@ -44,7 +50,8 @@ class TrackBuilder:
     def track(self, loaded_track: Track) -> None:
         """Unpack a Track proto message into the track waypoints."""
         self._track = loaded_track
-        self.track_waypoints = [Pose3F64.from_proto(pose) for pose in self.track.waypoints]
+        print(f"Loaded track with {len(loaded_track.waypoints)} waypoints.")
+        self.track_waypoints = [Pose3F64.from_proto(pose) for pose in self._track.waypoints]
         self._loaded = True
 
     def _create_segment(self, next_frame_b: str, distance: float, spacing: float, angle: float = 0) -> None:
