@@ -32,7 +32,7 @@ from google.protobuf.empty_pb2 import Empty
 from motion_planner import MotionPlanner
 
 
-class WaypointNavigationOrchestrator:
+class NavigationManager:
     """Orchestrates waypoint navigation using MotionPlanner and track_follower service."""
 
     def __init__(self, filter_client: EventClient, controller_client: EventClient, motion_planner: MotionPlanner):
@@ -325,7 +325,7 @@ async def main(args) -> None:
         )
 
         # Create orchestrator
-        orchestrator = WaypointNavigationOrchestrator(
+        orchestrator = NavigationManager(
             filter_client=filter_client, controller_client=controller_client, motion_planner=motion_planner
         )
 
