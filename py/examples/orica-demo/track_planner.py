@@ -98,7 +98,7 @@ class TrackBuilder:
         )
         turn_angle: float = np.pi / 2 - heading_to_next_pose - initial_pose.a_from_b.rotation.log()[-1]
         # Turn in place to align with the final pose
-        self.create_turn_segment(next_frame_b=next_frame_b, angle=turn_angle, spacing=spacing)
+        # self.create_turn_segment(next_frame_b=next_frame_b, angle=turn_angle, spacing=spacing)
         # Drive straight to the final pose
         self._create_segment(next_frame_b=next_frame_b, distance=distance, spacing=spacing)
 

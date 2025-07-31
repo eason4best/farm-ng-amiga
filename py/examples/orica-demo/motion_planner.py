@@ -28,7 +28,7 @@ from google.protobuf.empty_pb2 import Empty
 from track_planner import TrackBuilder
 
 
-async def get_current_pose(client: EventClient | None = None, timeout: float = 0.5) -> Optional[Pose3F64]:
+async def get_current_pose(client: EventClient | None = None, timeout: float = 2.5) -> Optional[Pose3F64]:
     """Get the current pose for the track.
 
     Args:
@@ -133,7 +133,7 @@ class MotionPlanner:
             The track segment to the next waypoint (Track)
         """
         # 1. Ensure we have the current pose
-        current_pose = self._get_current_pose()
+        current_pose = await self._get_current_pose()
 
         # 2. Create the track (AB) segment to the next waypoint
         track_builder = TrackBuilder(start=current_pose)

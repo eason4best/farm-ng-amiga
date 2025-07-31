@@ -1,7 +1,7 @@
 {
   "name": "track_follower",
   "port": 20101,
-  "host": "localhost",
+  "host": "100.78.87.25",
   "subscriptions": [
     {
       "uri": {

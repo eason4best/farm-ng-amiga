@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 from typing import Tuple
 
+import numpy as np
 from farm_ng.core.event_client import EventClient
 from farm_ng.core.event_service_pb2 import EventServiceConfig
 from farm_ng.core.events_file_reader import proto_from_json_file
@@ -30,6 +31,7 @@ from farm_ng.track.track_pb2 import TrackFollowRequest
 from farm_ng.track.track_pb2 import TrackStatusEnum
 from google.protobuf.empty_pb2 import Empty
 from motion_planner import MotionPlanner
+from visualization import plot_track
 
 
 class NavigationManager:
@@ -101,9 +103,9 @@ class NavigationManager:
         self.current_track_status = track_status
 
         # Log status changes
-        if prev_status != track_status:
-            status_name = TrackStatusEnum.Name(track_status)
-            print(f"📊 Track status changed: {status_name}")
+        # if prev_status != track_status:
+        #     # status_name = TrackStatusEnum.Name(track_status)
+        #     # print(f"📊 Track status changed: {status_name}")
 
         # Check for completion or failure
         if track_status == TrackStatusEnum.TRACK_COMPLETE:
@@ -115,8 +117,8 @@ class NavigationManager:
             TrackStatusEnum.TRACK_ABORTED,
             TrackStatusEnum.TRACK_CANCELLED,
         ]:
-            status_name = TrackStatusEnum.Name(track_status)
-            print(f"💥 Track failed with status: {status_name}")
+            # status_name = TrackStatusEnum.Name(track_status)
+            # print(f"💥 Track failed with status: {status_name}")
             if not robot_controllable:
                 failure_modes = [mode.name for mode in state.status.robot_status.failure_modes]
                 print(f"Robot not controllable. Failure modes: {failure_modes}")
@@ -196,6 +198,7 @@ class NavigationManager:
         try:
             # Set and start the track
             await self.set_track(track)
+            await asyncio.sleep(1.0)  # Brief pause to ensure track is set
             await self.start_following()
 
             # Wait for completion
@@ -226,10 +229,35 @@ class NavigationManager:
                 # Get next track segment
                 print(f"\n--- Segment {segment_count + 1} ---")
                 track_segment = await self.motion_planner.next_track_segment()
+                print(f"Got track segment with {len(track_segment.waypoints)} waypoints")
 
-                if track_segment is None:
-                    print("🏁 No more track segments. Navigation complete!")
-                    break
+                # current_pose_obj = self.motion_planner.current_pose
+                # if current_pose_obj is not None:
+
+                #     translation_array = np.asarray(current_pose_obj.a_from_b.translation)
+                #     print(f"Translation array: {translation_array}")
+
+                #     # Extract x, y from numpy array
+                #     x = float(translation_array[0])
+                #     y = float(translation_array[1])
+
+                #     # Extract heading from rotation (this should work as before)
+                #     heading = float(current_pose_obj.a_from_b.rotation.log()[-1])
+
+                #     # Create pose list for plotting
+                #     current_pose_list = [x, y, heading]
+
+                #     print("Made it here")
+                #     # Plot with current pose
+                #     plot_track(track_segment, current_pose=current_pose_list)
+                #     print("Track should be plotted with current pose")
+                # else:
+                #     # Plot without current pose
+                #     plot_track(track_segment)
+
+                # if track_segment is None:
+                #     print("🏁 No more track segments. Navigation complete!")
+                #     break
 
                 segment_count += 1
                 print(f"📍 Executing track segment {segment_count} with {len(track_segment.waypoints)} waypoints")
