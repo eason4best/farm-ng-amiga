@@ -103,9 +103,12 @@ class NavigationManager:
         self.current_track_status = track_status
 
         # Log status changes
-        # if prev_status != track_status:
-        #     # status_name = TrackStatusEnum.Name(track_status)
-        #     # print(f"📊 Track status changed: {status_name}")
+        if prev_status != track_status:
+            try:
+                status_name = TrackStatusEnum.Name(track_status)
+                print(f"📊 Track status changed: {status_name}")
+            except Exception as e:
+                print(f"❌ Error getting status name: {e}")
 
         # Check for completion or failure
         if track_status == TrackStatusEnum.TRACK_COMPLETE:
@@ -117,8 +120,12 @@ class NavigationManager:
             TrackStatusEnum.TRACK_ABORTED,
             TrackStatusEnum.TRACK_CANCELLED,
         ]:
-            # status_name = TrackStatusEnum.Name(track_status)
-            # print(f"💥 Track failed with status: {status_name}")
+            try:
+                status_name = TrackStatusEnum.Name(track_status)
+                print(f"💥 Track failed with status: {status_name}")
+            except Exception as e:
+                print(f"❌ Error getting status name: {e}")
+
             if not robot_controllable:
                 failure_modes = [mode.name for mode in state.status.robot_status.failure_modes]
                 print(f"Robot not controllable. Failure modes: {failure_modes}")
@@ -215,7 +222,7 @@ class NavigationManager:
             print(f"❌ Error executing track: {e}")
             return False
 
-    async def run_navigation(self) -> None:
+    async def run_navigation(self, vis: bool) -> None:
         """Run the complete waypoint navigation sequence."""
         print("🚁 Starting waypoint navigation...")
 
@@ -231,33 +238,30 @@ class NavigationManager:
                 track_segment = await self.motion_planner.next_track_segment()
                 print(f"Got track segment with {len(track_segment.waypoints)} waypoints")
 
-                # current_pose_obj = self.motion_planner.current_pose
-                # if current_pose_obj is not None:
+                if vis:
+                    current_pose_obj = self.motion_planner.current_pose
+                    if current_pose_obj is not None:
+                        translation_array = np.asarray(current_pose_obj.a_from_b.translation)
 
-                #     translation_array = np.asarray(current_pose_obj.a_from_b.translation)
-                #     print(f"Translation array: {translation_array}")
+                        # Extract x, y from numpy array
+                        x = float(translation_array[0])
+                        y = float(translation_array[1])
 
-                #     # Extract x, y from numpy array
-                #     x = float(translation_array[0])
-                #     y = float(translation_array[1])
+                        # Extract heading from rotation (this should work as before)
+                        heading = float(current_pose_obj.a_from_b.rotation.log()[-1])
 
-                #     # Extract heading from rotation (this should work as before)
-                #     heading = float(current_pose_obj.a_from_b.rotation.log()[-1])
+                        # Create pose list for plotting
+                        current_pose_list = [x, y, heading]
 
-                #     # Create pose list for plotting
-                #     current_pose_list = [x, y, heading]
+                        # Plot with current pose
+                        plot_track(track_segment, current_pose=current_pose_list)
+                    else:
+                        # Plot without current pose
+                        plot_track(track_segment)
 
-                #     print("Made it here")
-                #     # Plot with current pose
-                #     plot_track(track_segment, current_pose=current_pose_list)
-                #     print("Track should be plotted with current pose")
-                # else:
-                #     # Plot without current pose
-                #     plot_track(track_segment)
-
-                # if track_segment is None:
-                #     print("🏁 No more track segments. Navigation complete!")
-                #     break
+                    if track_segment is None:
+                        print("🏁 No more track segments. Navigation complete!")
+                        break
 
                 segment_count += 1
                 print(f"📍 Executing track segment {segment_count} with {len(track_segment.waypoints)} waypoints")
@@ -358,7 +362,7 @@ async def main(args) -> None:
         )
 
         # Run navigation
-        await orchestrator.run_navigation()
+        await orchestrator.run_navigation(vis=args.vis)
 
     except Exception as e:
         print(f"💥 Fatal error: {e}")
@@ -390,12 +394,15 @@ if __name__ == "__main__":
         default="left",
         help="Direction to turn at row ends (default: left)",
     )
-    parser.add_argument("--row-spacing", type=float, default=3.0, help="Spacing between rows in meters (default: 3.0)")
+    parser.add_argument("--row-spacing", type=float, default=6.0, help="Spacing between rows in meters (default: 3.0)")
     parser.add_argument(
         "--headland-buffer",
         type=float,
         default=2.0,
         help="Buffer distance for headland maneuvers in meters (default: 2.0)",
+    )
+    parser.add_argument(
+        "--vis", action="store_true", help="Enable visualization of the track and waypoints (default: False)"
     )
 
     args = parser.parse_args()

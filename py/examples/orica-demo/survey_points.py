@@ -18,6 +18,7 @@ import argparse
 import asyncio
 import sys
 import termios
+import time
 import tty
 from pathlib import Path
 
@@ -103,9 +104,12 @@ class WaypointCollector:
             print("No waypoints to save.")
             return
 
+        date_str = time.strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"./{date_str}_waypoints.json"
+
         try:
-            proto_to_json_file("./surveyed_waypoints.json", self.waypoints)
-            print("Waypoints saved to 'surveyed_waypoints.json'")
+            proto_to_json_file(filename, self.waypoints)
+            print(f"Waypoints saved to '{filename}'")
         except Exception as e:
             print(f"Error saving waypoints: {e}")
 
