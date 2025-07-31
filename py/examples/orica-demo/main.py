@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import datetime
 import json
 import signal
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict
 from typing import List
@@ -29,6 +29,7 @@ import numpy as np
 from farm_ng.core.event_client import EventClient
 from farm_ng.core.event_service_pb2 import EventServiceConfig
 from farm_ng.core.events_file_reader import proto_from_json_file
+from farm_ng.track.track_pb2 import RobotStatus
 from farm_ng.track.track_pb2 import Track
 from farm_ng.track.track_pb2 import TrackFollowerState
 from farm_ng.track.track_pb2 import TrackFollowRequest
@@ -164,8 +165,20 @@ class NavigationManager:
                 print(f"❌ Error getting status name: {e}")
 
             if not robot_controllable:
-                failure_modes = [mode.name for mode in state.status.robot_status.failure_modes]
-                print(f"Robot not controllable. Failure modes: {failure_modes}")
+                try:
+                    failure_modes = []
+                    for mode in state.status.robot_status.failure_modes:
+                        try:
+                            mode_name = RobotStatus.FailureMode.Name(mode)
+                            failure_modes.append(mode_name)
+                        except Exception as e:
+                            # Fallback to the integer value if enum name lookup fails
+                            failure_modes.append(f"UNKNOWN({mode})")
+                            print(f"❌ Error getting failure mode name: {e}")
+
+                    print(f"Robot not controllable. Failure modes: {failure_modes}")
+                except Exception as e:
+                    print(f"Robot not controllable. Failed to get failure modes: {e}")
             self.track_failed_event.set()
 
         # Log cross-track error if available
@@ -183,7 +196,7 @@ class NavigationManager:
                     f"longitudinal: {error.longitudinal_distance:.2f}m)"
                 )
 
-    async def wait_for_track_completion(self, timeout: float = 300.0) -> bool:
+    async def wait_for_track_completion(self, timeout: float = 60.0) -> bool:
         """Wait for track to complete or fail.
 
         Args:
@@ -225,7 +238,7 @@ class NavigationManager:
 
         return False
 
-    async def execute_single_track(self, track: Track, timeout: float = 300.0) -> bool:
+    async def execute_single_track(self, track: Track, timeout: float = 30.0) -> bool:
         """Execute a single track segment and wait for completion.
 
         Args:
@@ -308,9 +321,11 @@ class NavigationManager:
                 # Execute the track segment
                 success = await self.execute_single_track(track_segment)
 
-                if not success:
+                while not success:
                     print(f"💥 Failed to execute segment {segment_count}. Stopping navigation.")
-                    break
+                    # We might have failed because the filter diverged or CANBUS timed out.
+                    # We will try again
+                    success = await self.execute_single_track(track_segment)
 
                 # Brief pause between segments
                 await asyncio.sleep(1.0)

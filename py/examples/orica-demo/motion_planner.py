@@ -29,7 +29,7 @@ from google.protobuf.empty_pb2 import Empty
 from track_planner import TrackBuilder
 
 
-async def get_current_pose(client: EventClient | None = None, timeout: float = 2.5) -> Optional[Pose3F64]:
+async def get_current_pose(client: EventClient | None = None, timeout: float = 5.0) -> Optional[Pose3F64]:
     """Get the current pose for the track.
 
     Args:

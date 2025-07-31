@@ -80,7 +80,7 @@ class TrackBuilder:
         self._segment_indices.append(len(self.track_waypoints))
         self._loaded = False
 
-    def _angle_wrap(angle: float) -> float:
+    def _angle_wrap(self, angle: float) -> float:
         """Wrap angle to [-π, π] range."""
         return np.arctan2(np.sin(angle), np.cos(angle))
 
@@ -91,7 +91,7 @@ class TrackBuilder:
     def create_ab_segment(self, next_frame_b: str, final_pose: Pose3F64, spacing: float = 0.1) -> None:
         """Compute an AB line segment.
 
-        Assumption: We might not be perfectly aligned with thefinal pose, so we need
+        Assumption: We might not be perfectly aligned with the final pose, so we need
         to turn in place first.
         """
         initial_pose: Pose3F64 = self.track_waypoints[-1]
@@ -99,22 +99,28 @@ class TrackBuilder:
         dx = final_pose.a_from_b.translation[0] - initial_pose.a_from_b.translation[0]  # North
         dy = final_pose.a_from_b.translation[1] - initial_pose.a_from_b.translation[1]  # East
 
-        # Calculate required heading to reach final pose (in NWU coordinates)
-        # arctan2(west, north) gives heading from north
-        heading_to_next_pose: float = np.arctan2(dy, dx)
-
+        target_heading: float = final_pose.a_from_b.rotation.log()[-1]
         current_heading: float = initial_pose.a_from_b.rotation.log()[-1]
-        turn_angle: float = self._angle_wrap(heading_to_next_pose - current_heading)
+        print(f"Turn angle before wrapping: {target_heading - current_heading:.3f} rad | ")
+        turn_angle: float = self._angle_wrap(target_heading - current_heading)
+        print(f"Turn angle after wrapping: {turn_angle:.3f} rad | ")
 
         print(
             f"Current heading: {current_heading:.3f} rad | {np.degrees(current_heading):.3f} deg, "
-            f"Target heading: {heading_to_next_pose:.3f} rad | {np.degrees(heading_to_next_pose):.3f} deg, "
+            f"Target heading: {target_heading:.3f} rad | {np.degrees(target_heading):.3f} deg, "
             f"Turn angle: {turn_angle:.3f} rad | {np.degrees(turn_angle):.3f} deg, "
             f"Distance: {distance:.3f} m | Delta x: {dx:.3f} m | Delta y: {dy:.3f} m"
         )
 
+        turn_angle_deg: float = abs(np.degrees(turn_angle))
+        should_turn: bool = False
+        print("Signed turn angle (degrees):", turn_angle_deg)
+        if turn_angle_deg > 10 and turn_angle_deg < 170:
+            print("Turn angle is larger than 10 and smaller than 170 degrees")
+            should_turn = True
+
         # Turn in place to align with the final pose
-        if abs(turn_angle) > 0.005:  # ~ 3 degrees
+        if should_turn:
             self.create_turn_segment(next_frame_b=next_frame_b, angle=turn_angle, spacing=spacing)
         # Drive straight to the final pose
         if distance > 0.1:  # Avoid very short segments

@@ -1,7 +1,7 @@
 {
   "name": "track_follower",
   "port": 20101,
-  "host": "100.78.87.25",
+  "host": "100.104.73.63",
   "subscriptions": [
     {
       "uri": {

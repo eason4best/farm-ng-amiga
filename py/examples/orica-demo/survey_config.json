@@ -1,7 +1,7 @@
 {
   "name": "filter",
   "port": 20001,
-  "host": "100.78.87.25",
+  "host": "100.104.73.63",
   "log_level": "INFO",
   "subscriptions": [
     {
