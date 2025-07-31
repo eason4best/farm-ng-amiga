@@ -1,0 +1,562 @@
+#!/usr/bin/env python3
+# Copyright (c) farm-ng, inc.
+#
+# Licensed under the Amiga Development Kit License (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://github.com/farm-ng/amiga-dev-kit/blob/main/LICENSE
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Post-processing visualization script for navigation data.
+
+This script loads and visualizes:
+1. Surveyed waypoints from the original waypoints file
+2. All track segments from navigation_progress.json
+3. Robot start positions from robot_positions.json
+
+Usage:
+    python visualize_navigation.py --waypoints-path /path/to/waypoints.json [options]
+"""
+import argparse
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Dict
+from typing import List
+from typing import Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+class PostProcessingVisualizer:
+    """Post-processing visualizer for completed navigation sessions."""
+
+    def __init__(self, waypoints_path: Path, navigation_progress_path: Path = None, robot_positions_path: Path = None):
+        """Initialize the visualizer.
+
+        Args:
+            waypoints_path: Path to the surveyed waypoints JSON file
+            navigation_progress_path: Path to navigation_progress.json (optional)
+            robot_positions_path: Path to robot_positions.json (optional)
+        """
+        self.waypoints_path = waypoints_path
+        self.navigation_progress_path = navigation_progress_path or Path("navigation_progress.json")
+        self.robot_positions_path = robot_positions_path or Path("robot_positions.json")
+
+        # Data storage
+        self.surveyed_waypoints = []
+        self.track_segments = {}
+        self.robot_positions = []
+
+        # Visualization settings
+        self.colors = {
+            'surveyed': 'red',
+            'track_segments': ['blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive'],
+            'robot_positions': 'black',
+            'start_point': 'red',
+        }
+
+        # Load all data
+        self._load_all_data()
+
+    def _load_all_data(self):
+        """Load all navigation data from JSON files."""
+        self._load_surveyed_waypoints()
+        self._load_track_segments()
+        self._load_robot_positions()
+
+    def _load_surveyed_waypoints(self):
+        """Load surveyed waypoints from JSON file."""
+        try:
+            with open(self.waypoints_path, 'r') as f:
+                data = json.load(f)
+                self.surveyed_waypoints = data.get('waypoints', [])
+            print(f"✅ Loaded {len(self.surveyed_waypoints)} surveyed waypoints")
+        except Exception as e:
+            print(f"❌ Failed to load surveyed waypoints: {e}")
+            self.surveyed_waypoints = []
+
+    def _load_track_segments(self):
+        """Load track segments from navigation_progress.json."""
+        try:
+            if self.navigation_progress_path.exists():
+                with open(self.navigation_progress_path, 'r') as f:
+                    data = json.load(f)
+                    self.track_segments = data
+                print(f"✅ Loaded {len(self.track_segments)} track segments")
+            else:
+                print(f"⚠️  Navigation progress file not found: {self.navigation_progress_path}")
+        except Exception as e:
+            print(f"❌ Failed to load track segments: {e}")
+            self.track_segments = {}
+
+    def _load_robot_positions(self):
+        """Load robot positions from robot_positions.json."""
+        try:
+            if self.robot_positions_path.exists():
+                with open(self.robot_positions_path, 'r') as f:
+                    self.robot_positions = json.load(f)
+                print(f"✅ Loaded {len(self.robot_positions)} robot positions")
+            else:
+                print(f"⚠️  Robot positions file not found: {self.robot_positions_path}")
+        except Exception as e:
+            print(f"❌ Failed to load robot positions: {e}")
+            self.robot_positions = []
+
+    def unpack_surveyed_waypoints(self) -> Tuple[List[float], List[float], List[float]]:
+        """Unpack surveyed waypoints from JSON format.
+
+        Returns:
+            Tuple of (x_coords, y_coords, headings)
+        """
+        x_coords = []
+        y_coords = []
+        headings = []
+
+        for waypoint in self.surveyed_waypoints:
+            # Extract translation
+            translation = waypoint['aFromB']['translation']
+            x_coords.append(translation['x'])
+            y_coords.append(translation['y'])
+
+            # Extract heading from quaternion
+            quat = waypoint['aFromB']['rotation']['unitQuaternion']
+            z_imag = quat['imag'].get('z', 0)
+            real = quat['real']
+            heading = 2 * np.arctan2(z_imag, real)
+            headings.append(heading)
+
+        return x_coords, y_coords, headings
+
+    def unpack_track_segment(self, segment_data: Dict) -> Tuple[List[float], List[float], List[float]]:
+        """Unpack track segment from JSON format.
+
+        Args:
+            segment_data: Track segment data from navigation_progress.json
+
+        Returns:
+            Tuple of (x_coords, y_coords, headings)
+        """
+        x_coords = []
+        y_coords = []
+        headings = []
+
+        waypoints = segment_data.get('waypoints', [])
+        for waypoint in waypoints:
+            # Extract translation
+            translation = waypoint['aFromB']['translation']
+            x_coords.append(translation['x'])
+            y_coords.append(translation['y'])
+
+            # Extract heading from quaternion
+            quat = waypoint['aFromB']['rotation']['unitQuaternion']
+            z_imag = quat['imag'].get('z', 0)
+            real = quat['real']
+            heading = 2 * np.arctan2(z_imag, real)
+            headings.append(heading)
+
+        return x_coords, y_coords, headings
+
+    def plot_comprehensive_overview(
+        self,
+        show_headings: bool = True,
+        save_plot: bool = True,
+        show_waypoint_numbers: bool = False,
+        output_dir: Path = None,
+    ):
+        """Create a comprehensive plot showing all navigation elements.
+
+        Args:
+            show_headings: Whether to show heading arrows
+            save_plot: Whether to save the plot to file
+            show_waypoint_numbers: Whether to show waypoint numbers
+            output_dir: Directory to save plots (default: current directory)
+        """
+        plt.figure(figsize=(14, 10))
+
+        # Plot surveyed waypoints
+        if self.surveyed_waypoints:
+            survey_x, survey_y, survey_headings = self.unpack_surveyed_waypoints()
+            plt.scatter(
+                survey_x,
+                survey_y,
+                c=self.colors['surveyed'],
+                marker='s',
+                s=80,
+                label='Surveyed Waypoints',
+                alpha=0.8,
+                edgecolors='darkred',
+                linewidth=1,
+            )
+
+            if show_waypoint_numbers:
+                for i, (x, y) in enumerate(zip(survey_x, survey_y)):
+                    plt.annotate(
+                        f'S{i+1}',
+                        (x, y),
+                        xytext=(5, 5),
+                        textcoords='offset points',
+                        fontsize=8,
+                        color='darkred',
+                        fontweight='bold',
+                    )
+
+            if show_headings:
+                # Plot surveyed waypoint headings
+                survey_u = np.cos(survey_headings)
+                survey_v = np.sin(survey_headings)
+                plt.quiver(
+                    survey_x,
+                    survey_y,
+                    survey_u,
+                    survey_v,
+                    angles='xy',
+                    scale_units='xy',
+                    scale=4,
+                    color='darkred',
+                    alpha=0.7,
+                    width=0.003,
+                )
+
+        # Plot track segments
+        for i, (segment_name, segment_data) in enumerate(self.track_segments.items()):
+            color = self.colors['track_segments'][i % len(self.colors['track_segments'])]
+            x_coords, y_coords, headings = self.unpack_track_segment(segment_data)
+
+            # Plot track path
+            plt.plot(x_coords, y_coords, color=color, linewidth=2.5, label=f'Track: {segment_name}', alpha=0.9)
+
+            # Plot start point of each segment
+            plt.scatter(
+                x_coords[0], y_coords[0], c=color, marker='o', s=100, edgecolors='black', linewidth=1.5, alpha=0.9
+            )
+
+            # Plot end point of each segment
+            plt.scatter(
+                x_coords[-1], y_coords[-1], c=color, marker='*', s=120, edgecolors='black', linewidth=1, alpha=0.9
+            )
+
+            if show_headings and len(x_coords) > 0:
+                # Plot heading arrows (every few waypoints to avoid clutter)
+                arrow_interval = max(1, len(x_coords) // 8)
+                u_coords = np.cos(headings)
+                v_coords = np.sin(headings)
+
+                for j in range(0, len(x_coords), arrow_interval):
+                    plt.quiver(
+                        x_coords[j],
+                        y_coords[j],
+                        u_coords[j],
+                        v_coords[j],
+                        angles='xy',
+                        scale_units='xy',
+                        scale=3.5,
+                        color=color,
+                        alpha=0.8,
+                        width=0.002,
+                    )
+
+        # Plot recorded robot positions
+        if self.robot_positions:
+            robot_x = [pos['x'] for pos in self.robot_positions]
+            robot_y = [pos['y'] for pos in self.robot_positions]
+            plt.scatter(
+                robot_x,
+                robot_y,
+                c=self.colors['robot_positions'],
+                marker='^',
+                s=120,
+                label='Robot Start Positions',
+                edgecolors='white',
+                linewidth=2,
+                alpha=0.9,
+            )
+
+            # Add position numbers and segment names
+            for i, pos in enumerate(self.robot_positions):
+                plt.annotate(
+                    f'{i+1}',
+                    (pos['x'], pos['y']),
+                    xytext=(0, -15),
+                    textcoords='offset points',
+                    fontsize=9,
+                    color='white',
+                    fontweight='bold',
+                    ha='center',
+                    va='center',
+                )
+
+                # Add segment name below the number
+                plt.annotate(
+                    pos['segment_name'],
+                    (pos['x'], pos['y']),
+                    xytext=(0, 15),
+                    textcoords='offset points',
+                    fontsize=7,
+                    color='black',
+                    ha='center',
+                    va='center',
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.7),
+                )
+
+        plt.axis('equal')
+        plt.grid(True, alpha=0.3)
+        plt.xlabel('X (m)', fontsize=12)
+        plt.ylabel('Y (m)', fontsize=12)
+        plt.title('Navigation Overview: Surveyed Waypoints, Track Segments & Robot Positions', fontsize=14)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+
+        # Add statistics text box
+        stats_text = f"Surveyed Waypoints: {len(self.surveyed_waypoints)}\n"
+        stats_text += f"Track Segments: {len(self.track_segments)}\n"
+        stats_text += f"Robot Positions: {len(self.robot_positions)}"
+
+        plt.text(
+            0.02,
+            0.98,
+            stats_text,
+            transform=plt.gca().transAxes,
+            fontsize=10,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8),
+        )
+
+        if save_plot:
+            if output_dir is None:
+                output_dir = Path.cwd()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            plot_path = output_dir / f"navigation_overview_{timestamp}.png"
+            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+            print(f"💾 Plot saved to {plot_path}")
+
+        plt.tight_layout()
+        plt.show()
+
+    def plot_segments_individually(self, output_dir: Path = None):
+        """Plot each track segment individually."""
+        if not self.track_segments:
+            print("❌ No track segments to plot")
+            return
+
+        for i, (segment_name, segment_data) in enumerate(self.track_segments.items()):
+            plt.figure(figsize=(10, 8))
+
+            color = self.colors['track_segments'][i % len(self.colors['track_segments'])]
+            x_coords, y_coords, headings = self.unpack_track_segment(segment_data)
+
+            # Plot the track segment
+            plt.plot(x_coords, y_coords, color=color, linewidth=3, label=f'Track: {segment_name}')
+
+            # Plot waypoints
+            plt.scatter(x_coords, y_coords, c=color, marker='o', s=50, alpha=0.7)
+
+            # Plot start and end points
+            plt.scatter(
+                x_coords[0], y_coords[0], c='red', marker='o', s=120, label='Start', edgecolors='black', linewidth=2
+            )
+            plt.scatter(
+                x_coords[-1], y_coords[-1], c='green', marker='*', s=150, label='End', edgecolors='black', linewidth=2
+            )
+
+            # Plot heading arrows
+            u_coords = np.cos(headings)
+            v_coords = np.sin(headings)
+
+            arrow_interval = max(1, len(x_coords) // 10)
+            for j in range(0, len(x_coords), arrow_interval):
+                plt.quiver(
+                    x_coords[j],
+                    y_coords[j],
+                    u_coords[j],
+                    v_coords[j],
+                    angles='xy',
+                    scale_units='xy',
+                    scale=3.5,
+                    color=color,
+                    alpha=0.8,
+                    width=0.003,
+                )
+
+            # Show corresponding robot position if available
+            robot_pos = None
+            for pos in self.robot_positions:
+                if pos['segment_name'] == segment_name:
+                    robot_pos = pos
+                    break
+
+            if robot_pos:
+                plt.scatter(
+                    robot_pos['x'],
+                    robot_pos['y'],
+                    c='lime',
+                    marker='^',
+                    s=150,
+                    label='Robot Start Position',
+                    edgecolors='black',
+                    linewidth=2,
+                )
+
+                # Robot heading arrow
+                robot_u = np.cos(robot_pos['heading'])
+                robot_v = np.sin(robot_pos['heading'])
+                plt.quiver(
+                    robot_pos['x'],
+                    robot_pos['y'],
+                    robot_u,
+                    robot_v,
+                    angles='xy',
+                    scale_units='xy',
+                    scale=2.5,
+                    color='lime',
+                    width=0.005,
+                )
+
+            plt.axis('equal')
+            plt.grid(True, alpha=0.3)
+            plt.xlabel('X (m)')
+            plt.ylabel('Y (m)')
+            plt.title(f'Track Segment: {segment_name}')
+            plt.legend()
+
+            if output_dir:
+                plot_path = output_dir / f"segment_{i+1}_{segment_name}.png"
+                plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+                print(f"💾 Segment plot saved to {plot_path}")
+
+            plt.tight_layout()
+            plt.show()
+
+    def generate_summary_report(self, output_dir: Path = None):
+        """Generate a text summary report of the navigation session."""
+        if output_dir is None:
+            output_dir = Path.cwd()
+
+        report_path = output_dir / "navigation_summary_report.txt"
+
+        try:
+            with open(report_path, 'w') as f:
+                f.write("NAVIGATION SESSION SUMMARY REPORT\n")
+                f.write("=" * 50 + "\n\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+
+                f.write("OVERVIEW:\n")
+                f.write("-" * 20 + "\n")
+                f.write(f"Surveyed Waypoints: {len(self.surveyed_waypoints)}\n")
+                f.write(f"Track Segments Executed: {len(self.track_segments)}\n")
+                f.write(f"Robot Start Positions Recorded: {len(self.robot_positions)}\n\n")
+
+                if self.track_segments:
+                    f.write("TRACK SEGMENTS DETAILS:\n")
+                    f.write("-" * 30 + "\n")
+                    for i, (name, segment_data) in enumerate(self.track_segments.items(), 1):
+                        x_coords, y_coords, headings = self.unpack_track_segment(segment_data)
+                        f.write(f"{i}. {name}\n")
+                        f.write(f"   Waypoints: {len(x_coords)}\n")
+                        if x_coords:
+                            f.write(f"   Start: ({x_coords[0]:.2f}, {y_coords[0]:.2f})\n")
+                            f.write(f"   End: ({x_coords[-1]:.2f}, {y_coords[-1]:.2f})\n")
+                        f.write("\n")
+
+                if self.robot_positions:
+                    f.write("ROBOT START POSITIONS:\n")
+                    f.write("-" * 30 + "\n")
+                    for i, pos in enumerate(self.robot_positions, 1):
+                        f.write(f"{i}. {pos['segment_name']}\n")
+                        f.write(f"   Time: {pos['timestamp']}\n")
+                        f.write(f"   Position: ({pos['x']:.2f}, {pos['y']:.2f})\n")
+                        f.write(f"   Heading: {np.degrees(pos['heading']):.1f}°\n\n")
+
+            print(f"📄 Summary report saved to {report_path}")
+
+        except Exception as e:
+            print(f"❌ Failed to generate summary report: {e}")
+
+
+def main():
+    """Main function for the post-processing visualizer."""
+    parser = argparse.ArgumentParser(description="Post-processing visualization for navigation data")
+
+    # Required arguments
+    parser.add_argument("--waypoints-path", type=Path, required=True, help="Path to surveyed waypoints JSON file")
+
+    # Optional arguments
+    parser.add_argument(
+        "--navigation-progress",
+        type=Path,
+        default=Path("navigation_progress.json"),
+        help="Path to navigation_progress.json file (default: navigation_progress.json)",
+    )
+
+    parser.add_argument(
+        "--robot-positions",
+        type=Path,
+        default=Path("robot_positions.json"),
+        help="Path to robot_positions.json file (default: robot_positions.json)",
+    )
+
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("navigation_plots"),
+        help="Directory to save plots and reports (default: navigation_plots)",
+    )
+
+    parser.add_argument("--no-headings", action="store_true", help="Don't show heading arrows in plots")
+
+    parser.add_argument("--individual-segments", action="store_true", help="Also plot each segment individually")
+
+    parser.add_argument(
+        "--show-waypoint-numbers", action="store_true", help="Show waypoint numbers on surveyed waypoints"
+    )
+
+    parser.add_argument("--no-save", action="store_true", help="Don't save plots to files")
+
+    args = parser.parse_args()
+
+    # Validate waypoints file
+    if not args.waypoints_path.exists():
+        print(f"❌ Waypoints file not found: {args.waypoints_path}")
+        return
+
+    # Create output directory
+    if not args.no_save:
+        args.output_dir.mkdir(exist_ok=True)
+
+    # Create visualizer
+    print("🎨 Initializing post-processing visualizer...")
+    visualizer = PostProcessingVisualizer(
+        waypoints_path=args.waypoints_path,
+        navigation_progress_path=args.navigation_progress,
+        robot_positions_path=args.robot_positions,
+    )
+
+    # Generate comprehensive overview
+    print("🖼️  Creating comprehensive navigation overview...")
+    visualizer.plot_comprehensive_overview(
+        show_headings=not args.no_headings,
+        save_plot=not args.no_save,
+        show_waypoint_numbers=args.show_waypoint_numbers,
+        output_dir=args.output_dir if not args.no_save else None,
+    )
+
+    # Generate individual segment plots if requested
+    if args.individual_segments:
+        print("🖼️  Creating individual segment plots...")
+        visualizer.plot_segments_individually(output_dir=args.output_dir if not args.no_save else None)
+
+    # Generate summary report
+    if not args.no_save:
+        print("📄 Generating summary report...")
+        visualizer.generate_summary_report(output_dir=args.output_dir)
+
+    print("✅ Visualization complete!")
+
+
+if __name__ == "__main__":
+    main()

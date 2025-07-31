@@ -18,6 +18,7 @@ from math import radians
 from pathlib import Path
 from typing import Dict
 from typing import Optional
+from typing import Tuple
 
 from farm_ng.core.event_client import EventClient
 from farm_ng.core.events_file_reader import proto_from_json_file
@@ -184,7 +185,7 @@ class MotionPlanner:
             await self.pose_query_task
             self.pose_query_task = None
 
-    async def next_track_segment(self) -> Optional[Track]:
+    async def next_track_segment(self) -> Tuple[Optional[Track], Optional[str]]:
         """Get the next track segment to navigate to.
 
         Returns:
@@ -193,20 +194,25 @@ class MotionPlanner:
         if self.current_waypoint_index >= len(self.waypoints):
             print("No more waypoints to navigate to.")
             asyncio.create_task(self._shutdown())
-            return None
+            return (None, None)
 
         # Check if we're switching to the next row or just moving to the next waypoint
         if self.current_waypoint_index != self.last_row_waypoint_index:
             # We're not transitioning to a new row, we will just create an AB segment to the next waypoint
-            return await self._create_ab_segment_to_next_waypoint()
+            curr_index = self.current_waypoint_index
+            track = await self._create_ab_segment_to_next_waypoint()
+            next_index = self.current_waypoint_index
+            seg_name = f"waypoint_{curr_index}_to_{next_index}"
+            return (track, seg_name)
 
         # We're switching to the next row
         # 1. Check if we have finished all row end maneuvers
         if self.row_end_segment_index >= 5:
             print("Finished all row end maneuvers, moving to the next row.")
-            return await self._create_ab_segment_to_next_waypoint()
+            seg_name = f"row_end_5_to_waypoint_{self.current_waypoint_index + 1}"
+            return (await self._create_ab_segment_to_next_waypoint(), seg_name)
         else:
             # We need to return a segment from the row end maneuver
             track_segment = await self._row_end_maneuver(self.row_end_segment_index)
             self.row_end_segment_index += 1
-            return track_segment
+            return (track_segment, f"row_end_{self.row_end_segment_index}")

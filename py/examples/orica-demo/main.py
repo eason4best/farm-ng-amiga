@@ -15,9 +15,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import datetime
+import json
 import signal
 import sys
 from pathlib import Path
+from typing import Dict
+from typing import List
 from typing import Optional
 from typing import Tuple
 
@@ -45,6 +49,39 @@ class NavigationManager:
         self.track_complete_event = asyncio.Event()
         self.track_failed_event = asyncio.Event()
         self.shutdown_requested = False
+        self.navigation_progress: Dict[str, Track] = {}
+        self.robot_positions: List[Dict] = []
+
+    def record_robot_position(self, segment_name: str) -> None:
+        """Record robot position before starting a track segment.
+
+        Args:
+            segment_name: Name of the track segment about to be executed
+        """
+        current_pose_obj = self.motion_planner.current_pose
+        if current_pose_obj is not None:
+            try:
+                translation_array = np.asarray(current_pose_obj.a_from_b.translation)
+                x = float(translation_array[0])
+                y = float(translation_array[1])
+                heading = float(current_pose_obj.a_from_b.rotation.log()[-1])
+
+                position_record = {
+                    'timestamp': datetime.now().isoformat(),
+                    'segment_name': segment_name,
+                    'x': x,
+                    'y': y,
+                    'heading': heading,
+                }
+
+                self.robot_positions.append(position_record)
+                print(
+                    f"📍 Recorded robot position for segment '{segment_name}': ({x:.2f}, {y:.2f}, "
+                    f"{np.degrees(heading):.1f}°)"
+                )
+
+            except Exception as e:
+                print(f"❌ Failed to record robot position: {e}")
 
     async def set_track(self, track: Track) -> None:
         """Set the track for the track_follower to follow.
@@ -235,8 +272,10 @@ class NavigationManager:
             while not self.shutdown_requested:
                 # Get next track segment
                 print(f"\n--- Segment {segment_count + 1} ---")
-                track_segment = await self.motion_planner.next_track_segment()
-                print(f"Got track segment with {len(track_segment.waypoints)} waypoints")
+                (track_segment, segment_name) = await self.motion_planner.next_track_segment()
+                self.record_robot_position(segment_name)
+                print(f"Got track segment '{segment_name}' with {len(track_segment.waypoints)} waypoints")
+                self.navigation_progress[segment_name] = track_segment
 
                 if vis:
                     current_pose_obj = self.motion_planner.current_pose
@@ -366,6 +405,25 @@ async def main(args) -> None:
 
     except Exception as e:
         print(f"💥 Fatal error: {e}")
+
+    finally:
+        # Save navigation progress to JSON file
+        progress_path = Path("navigation_progress.json")
+        try:
+            with open(progress_path, "w") as f:
+                json.dump({k: v.to_dict() for k, v in orchestrator.navigation_progress.items()}, f, indent=2)
+            print(f"✅ Navigation progress saved to {progress_path}")
+        except Exception as e:
+            print(f"❌ Failed to save navigation progress: {e}")
+
+        positions_path = Path("robot_positions.json")
+        try:
+            with open(positions_path, "w") as f:
+                json.dump(orchestrator.robot_positions, f, indent=2)
+            print(f"✅ Robot positions saved to {positions_path}")
+        except Exception as e:
+            print(f"❌ Failed to save robot positions: {e}")
+
         sys.exit(1)
 
 
