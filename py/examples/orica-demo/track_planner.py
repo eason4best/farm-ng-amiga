@@ -91,7 +91,7 @@ class TrackBuilder:
     def create_ab_segment(self, next_frame_b: str, final_pose: Pose3F64, spacing: float = 0.1) -> None:
         """Compute an AB line segment.
 
-        Assumption: We might not be perfectly aligned with the final pose, so we need
+        Assumption: We might not be perfectly aligned with thefinal pose, so we need
         to turn in place first.
         """
         initial_pose: Pose3F64 = self.track_waypoints[-1]
@@ -99,15 +99,16 @@ class TrackBuilder:
         dx = final_pose.a_from_b.translation[0] - initial_pose.a_from_b.translation[0]  # North
         dy = final_pose.a_from_b.translation[1] - initial_pose.a_from_b.translation[1]  # East
 
-        target_heading: float = final_pose.a_from_b.rotation.log()[-1]
+        # Calculate required heading to reach final pose (in NWU coordinates)
+        # arctan2(west, north) gives heading from north
+        heading_to_next_pose: float = np.arctan2(dy, dx)
+
         current_heading: float = initial_pose.a_from_b.rotation.log()[-1]
-        print(f"Turn angle before wrapping: {target_heading - current_heading:.3f} rad | ")
-        turn_angle: float = self._angle_wrap(target_heading - current_heading)
-        print(f"Turn angle after wrapping: {turn_angle:.3f} rad | ")
+        turn_angle: float = self._angle_wrap(heading_to_next_pose - current_heading)
 
         print(
             f"Current heading: {current_heading:.3f} rad | {np.degrees(current_heading):.3f} deg, "
-            f"Target heading: {target_heading:.3f} rad | {np.degrees(target_heading):.3f} deg, "
+            f"Target heading: {heading_to_next_pose:.3f} rad | {np.degrees(heading_to_next_pose):.3f} deg, "
             f"Turn angle: {turn_angle:.3f} rad | {np.degrees(turn_angle):.3f} deg, "
             f"Distance: {distance:.3f} m | Delta x: {dx:.3f} m | Delta y: {dy:.3f} m"
         )
