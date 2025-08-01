@@ -88,47 +88,44 @@ class TrackBuilder:
         """Compute a straight segment."""
         self._create_segment(next_frame_b=next_frame_b, distance=distance, spacing=spacing)
 
-    def create_ab_segment(self, next_frame_b: str, final_pose: Pose3F64, spacing: float = 0.1) -> None:
-        """Compute an AB line segment.
+    def create_ab_segment(self, next_frame_b: str, final_pose, spacing: float = 0.1) -> None:
+        """Create AB segment using direct pose interpolation."""
+        initial_pose = self.track_waypoints[-1]
 
-        Assumption: We might not be perfectly aligned with thefinal pose, so we need
-        to turn in place first.
-        """
-        initial_pose: Pose3F64 = self.track_waypoints[-1]
-        distance: float = np.linalg.norm(initial_pose.a_from_b.translation - final_pose.a_from_b.translation)
-        dx = final_pose.a_from_b.translation[0] - initial_pose.a_from_b.translation[0]  # North
-        dy = final_pose.a_from_b.translation[1] - initial_pose.a_from_b.translation[1]  # East
+        # Calculate total distance
+        distance = np.linalg.norm(final_pose.a_from_b.translation - initial_pose.a_from_b.translation)
 
-        # Calculate required heading to reach final pose (in NWU coordinates)
-        # arctan2(west, north) gives heading from north
-        heading_to_next_pose: float = np.arctan2(dy, dx)
+        if distance < 0.01:  # Too close, skip
+            return
 
-        current_heading: float = initial_pose.a_from_b.rotation.log()[-1]
-        turn_angle: float = self._angle_wrap(heading_to_next_pose - current_heading)
+        # Number of intermediate points
+        num_points = max(1, int(distance / spacing))
 
-        print(
-            f"Current heading: {current_heading:.3f} rad | {np.degrees(current_heading):.3f} deg, "
-            f"Target heading: {heading_to_next_pose:.3f} rad | {np.degrees(heading_to_next_pose):.3f} deg, "
-            f"Turn angle: {turn_angle:.3f} rad | {np.degrees(turn_angle):.3f} deg, "
-            f"Distance: {distance:.3f} m | Delta x: {dx:.3f} m | Delta y: {dy:.3f} m"
-        )
+        # Get initial and final headings (yaw angle)
+        initial_heading = initial_pose.a_from_b.rotation.log()[-1]
+        final_heading = final_pose.a_from_b.rotation.log()[-1]
 
-        turn_angle_deg: float = abs(np.degrees(turn_angle))
-        should_turn: bool = False
-        print("Signed turn angle (degrees):", turn_angle_deg)
-        if turn_angle_deg > 10 and turn_angle_deg < 170:
-            print("Turn angle is larger than 10 and smaller than 170 degrees")
-            should_turn = True
+        # Wrap the angle difference properly
+        heading_diff = self._angle_wrap(final_heading - initial_heading)
 
-        # Turn in place to align with the final pose
-        if should_turn:
-            self.create_turn_segment(next_frame_b=next_frame_b, angle=turn_angle, spacing=spacing)
-        # Drive straight to the final pose
-        if distance > 0.1:  # Avoid very short segments
-            self._create_segment(next_frame_b=next_frame_b, distance=distance, spacing=spacing)
-            # Now, we will pop the last waypoint, and actually add the desired final pose
-            self.track_waypoints.pop()
-            self.track_waypoints.append(final_pose)
+        # Interpolate poses along the path
+        for i in range(1, num_points + 1):
+            t = i / num_points
+
+            # Linear interpolation of position
+            interp_translation = initial_pose.a_from_b.translation * (1 - t) + final_pose.a_from_b.translation * t
+
+            # Linear interpolation of heading
+            interp_heading = initial_heading + t * heading_diff
+
+            # Create interpolated pose
+            interp_pose = Pose3F64(
+                Isometry3F64(interp_translation, Rotation3F64.Rz(interp_heading)),  # Create rotation around Z-axis
+                final_pose.frame_a,
+                next_frame_b,
+            )
+
+            self.track_waypoints.append(interp_pose)
 
     def create_turn_segment(self, next_frame_b: str, angle: float, spacing: float = 0.1) -> None:
         """Compute a turn (in place) segment."""

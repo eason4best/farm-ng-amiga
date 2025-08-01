@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import signal
 import sys
 from math import radians
@@ -38,24 +37,17 @@ from track_planner import TrackBuilder
 
 
 async def get_current_pose(client: EventClient, timeout: float = 5.0) -> Optional[Pose3F64]:
-    """Get the current pose for the track.
-
-    Args:
-        client: A EventClient for the required service (filter)
-    Returns:
-        The current pose (Pose3F64) if available, otherwise None.
-    """
-
     try:
-        # Get the current state of the filter
         state: FilterState = await asyncio.wait_for(
             client.request_reply("/get_state", Empty(), decode=True), timeout=timeout
         )
         return Pose3F64.from_proto(state.pose)
     except asyncio.TimeoutError:
         print("Timeout while getting filter state. Using default start pose.")
+        return None  # ← Explicitly return None
     except Exception as e:
         print(f"Error getting filter state: {e}. Using default start pose.")
+        return None  # ← Explicitly return None
 
 
 class NavigationManager:
@@ -282,40 +274,53 @@ class NavigationManager:
             for _ in range(0, self.number_of_turns):
                 if self.shutdown_requested:
                     break
-                # Get next track segment
+
                 print(f"\n--- Turn {segment_count + 1} ---")
 
-                current_pose = await self.get_current_pose()
-                track_builder = TrackBuilder(start=current_pose)
-                track_segment = await track_builder.create_turn_segment(
-                    next_frame_b="90_deg_turn", angle=radians(90), spacing=0.1
-                )
+                try:
+                    current_pose = await self.get_current_pose()
+                    if current_pose is None:
+                        print("❌ Failed to get current pose, skipping turn")
+                        continue
 
-                print(f"📍 Executing turn {segment_count}")
+                    track_builder = TrackBuilder(start=current_pose)
+                    if track_builder is None:
+                        print("❌ Failed to create track builder, skipping turn")
+                        continue
 
-                # Execute the track segment
-                success = await self.execute_single_track(track_segment)
+                    track_builder.create_turn_segment(next_frame_b="90_deg_turn", angle=radians(90), spacing=0.1)
+                    track_segment = track_builder.track
+                    if track_segment is None:
+                        print("❌ Failed to create track segment, skipping turn")
+                        continue
 
-                while not success:
-                    print(f"💥 Failed to execute segment {segment_count}. Stopping navigation.")
-                    # We might have failed because the filter diverged or CANBUS timed out.
-                    # We will try again
+                    print(f"📍 Executing turn {segment_count}")
                     success = await self.execute_single_track(track_segment)
 
-                # Brief pause between segments
-                await asyncio.sleep(self.delay)
+                    while not success:
+                        print(f"💥 Failed to execute segment {segment_count}. Retrying...")
+                        success = await self.execute_single_track(track_segment)
+
+                    segment_count += 1
+                    await asyncio.sleep(self.delay)
+
+                except Exception as e:
+                    print(f"❌ Error in turn {segment_count + 1}: {e}")
+                    import traceback
+
+                    traceback.print_exc()
+                    break
 
             print(f"🎯 Navigation completed after {segment_count} segments")
 
-        except KeyboardInterrupt:
-            print("\n🛑 Navigation interrupted by user")
         except Exception as e:
             print(f"💥 Navigation failed with error: {e}")
+            import traceback
+
+            traceback.print_exc()
         finally:
-            # Cleanup
             self.shutdown_requested = True
             monitor_task.cancel()
-
             try:
                 await monitor_task
             except asyncio.CancelledError:
@@ -369,7 +374,7 @@ async def main(args) -> None:
 
     setup_signal_handlers()
     delay = args.delay
-    number_of_turns = args.number_of_turns
+    number_of_turns = args.turns
 
     try:
         # Setup clients
@@ -384,29 +389,10 @@ async def main(args) -> None:
         )
 
         # Run navigation
-        await orchestrator.run_navigation(vis=args.vis)
+        await orchestrator.run_navigation()
 
     except Exception as e:
         print(f"💥 Fatal error: {e}")
-
-    finally:
-        # Save navigation progress to JSON file
-        progress_path = Path("navigation_progress.json")
-        try:
-            with open(progress_path, "w") as f:
-                json.dump({k: v.to_dict() for k, v in orchestrator.navigation_progress.items()}, f, indent=2)
-            print(f"✅ Navigation progress saved to {progress_path}")
-        except Exception as e:
-            print(f"❌ Failed to save navigation progress: {e}")
-
-        positions_path = Path("robot_positions.json")
-        try:
-            with open(positions_path, "w") as f:
-                json.dump(orchestrator.robot_positions, f, indent=2)
-            print(f"✅ Robot positions saved to {positions_path}")
-        except Exception as e:
-            print(f"❌ Failed to save robot positions: {e}")
-
         sys.exit(1)
 
 

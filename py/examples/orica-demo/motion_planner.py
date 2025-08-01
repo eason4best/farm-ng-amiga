@@ -170,10 +170,15 @@ class MotionPlanner:
         elif index == 2 or index == 4:
             # Turn 90° – reorient the robot toward the next row.
             track_builder.create_turn_segment(next_frame_b=next_frame_b, angle=radians(90 * self.turn_angle_sign))
+            # We will move forward another 50 cm to ensure the robot stops rotating before it overshoots
+            # the planned 90 degree turn.
+            track_builder.create_straight_segment(next_frame_b=next_frame_b, distance=0.5, spacing=0.1)
             track_segment = track_builder.track
         else:
             # Drive forward – cross the row spacing gap.
-            track_builder.create_straight_segment(next_frame_b=next_frame_b, distance=self.row_spacing, spacing=0.1)
+            track_builder.create_straight_segment(
+                next_frame_b=next_frame_b, distance=self.row_spacing - 0.5, spacing=0.1
+            )
             track_segment = track_builder.track
 
         return track_segment
