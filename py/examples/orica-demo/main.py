@@ -286,10 +286,12 @@ class NavigationManager:
                 # Get next track segment
                 print(f"\n--- Segment {segment_count + 1} ---")
                 (track_segment, segment_name) = await self.motion_planner.next_track_segment()
+                if track_segment is None:
+                    print("🏁 No more track segments. Navigation complete!")
+                    break
                 self.record_robot_position(segment_name)
                 print(f"Got track segment '{segment_name}' with {len(track_segment.waypoints)} waypoints")
                 self.navigation_progress[segment_name] = track_segment
-
                 if vis:
                     current_pose_obj = self.motion_planner.current_pose
                     if current_pose_obj is not None:
@@ -310,10 +312,6 @@ class NavigationManager:
                     else:
                         # Plot without current pose
                         plot_track(track_segment)
-
-                    if track_segment is None:
-                        print("🏁 No more track segments. Navigation complete!")
-                        break
 
                 segment_count += 1
                 print(f"📍 Executing track segment {segment_count} with {len(track_segment.waypoints)} waypoints")
@@ -378,11 +376,12 @@ async def setup_clients(filter_config_path: Path, controller_config_path: Path) 
     return filter_client, controller_client
 
 
-def setup_signal_handlers():
+def setup_signal_handlers(orchestrator: NavigationManager) -> None:
     """Setup signal handlers for graceful shutdown."""
 
     def signal_handler(signum, frame):
         print(f"\n🛑 Received signal {signum}, shutting down gracefully...")
+        orchestrator.shutdown_requested = True
         # Let the main loop handle the shutdown
         return
 
@@ -392,8 +391,6 @@ def setup_signal_handlers():
 
 async def main(args) -> None:
     """Main function to orchestrate waypoint navigation."""
-
-    setup_signal_handlers()
 
     try:
         # Setup clients
@@ -415,6 +412,8 @@ async def main(args) -> None:
             filter_client=filter_client, controller_client=controller_client, motion_planner=motion_planner
         )
 
+        setup_signal_handlers(orchestrator=orchestrator)
+
         # Run navigation
         await orchestrator.run_navigation(vis=args.vis)
 
@@ -425,8 +424,31 @@ async def main(args) -> None:
         # Save navigation progress to JSON file
         progress_path = Path("navigation_progress.json")
         try:
+            # Convert protobuf Track objects to serializable format
+            serializable_progress = {}
+            for segment_name, track in orchestrator.navigation_progress.items():
+                # Convert Track protobuf to dict manually
+                waypoints_data = []
+                for waypoint in track.waypoints:
+                    waypoint_data = {
+                        'frame_a': waypoint.frame_a,
+                        'frame_b': waypoint.frame_b,
+                        'translation': {
+                            'x': float(waypoint.a_from_b.translation[0]),
+                            'y': float(waypoint.a_from_b.translation[1]),
+                            'z': float(waypoint.a_from_b.translation[2]),
+                        },
+                        'rotation_log': list(float(x) for x in waypoint.a_from_b.rotation.log()),
+                    }
+                    waypoints_data.append(waypoint_data)
+
+                serializable_progress[segment_name] = {
+                    'waypoints_count': len(track.waypoints),
+                    'waypoints': waypoints_data,
+                }
+
             with open(progress_path, "w") as f:
-                json.dump({k: v.to_dict() for k, v in orchestrator.navigation_progress.items()}, f, indent=2)
+                json.dump(serializable_progress, f, indent=2)
             print(f"✅ Navigation progress saved to {progress_path}")
         except Exception as e:
             print(f"❌ Failed to save navigation progress: {e}")
