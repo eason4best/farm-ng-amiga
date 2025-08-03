@@ -18,7 +18,6 @@ import asyncio
 import json
 import signal
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Dict
 from typing import List
@@ -34,6 +33,7 @@ from farm_ng.track.track_pb2 import Track
 from farm_ng.track.track_pb2 import TrackFollowerState
 from farm_ng.track.track_pb2 import TrackFollowRequest
 from farm_ng.track.track_pb2 import TrackStatusEnum
+from farm_ng_core_pybind import Pose3F64
 from google.protobuf.empty_pb2 import Empty
 from motion_planner import MotionPlanner
 from visualization import plot_track
@@ -67,13 +67,7 @@ class NavigationManager:
                 y = float(translation_array[1])
                 heading = float(current_pose_obj.a_from_b.rotation.log()[-1])
 
-                position_record = {
-                    'timestamp': datetime.now().isoformat(),
-                    'segment_name': segment_name,
-                    'x': x,
-                    'y': y,
-                    'heading': heading,
-                }
+                position_record = {'segment_name': segment_name, 'x': x, 'y': y, 'heading': heading}
 
                 self.robot_positions.append(position_record)
                 print(
@@ -424,27 +418,24 @@ async def main(args) -> None:
         # Save navigation progress to JSON file
         progress_path = Path("navigation_progress.json")
         try:
-            # Convert protobuf Track objects to serializable format
+            # Convert protobuf Track objects to simple [x, y, heading] format
             serializable_progress = {}
             for segment_name, track in orchestrator.navigation_progress.items():
-                # Convert Track protobuf to dict manually
-                waypoints_data = []
-                for waypoint in track.waypoints:
-                    waypoint_data = {
-                        'frame_a': waypoint.frame_a,
-                        'frame_b': waypoint.frame_b,
-                        'translation': {
-                            'x': float(waypoint.a_from_b.translation[0]),
-                            'y': float(waypoint.a_from_b.translation[1]),
-                            'z': float(waypoint.a_from_b.translation[2]),
-                        },
-                        'rotation_log': list(float(x) for x in waypoint.a_from_b.rotation.log()),
-                    }
-                    waypoints_data.append(waypoint_data)
+                x: list[float] = []
+                y: list[float] = []
+                heading: list[float] = []
+
+                track_waypoints = [Pose3F64.from_proto(pose) for pose in track.waypoints]
+                for pose in track_waypoints:
+                    x.append(pose.a_from_b.translation[0])
+                    y.append(pose.a_from_b.translation[1])
+                    heading.append(pose.a_from_b.rotation.log()[-1])
 
                 serializable_progress[segment_name] = {
                     'waypoints_count': len(track.waypoints),
-                    'waypoints': waypoints_data,
+                    'x': x,
+                    'y': y,
+                    'heading': heading,
                 }
 
             with open(progress_path, "w") as f:
