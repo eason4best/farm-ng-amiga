@@ -13,6 +13,7 @@
 # limitations under the License.
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +23,8 @@ from farm_ng.track.track_pb2 import Track
 from farm_ng_core_pybind import Isometry3F64
 from farm_ng_core_pybind import Pose3F64
 from farm_ng_core_pybind import Rotation3F64
+
+logger = logging.getLogger("Track Planner")
 
 
 class TrackBuilder:
@@ -50,7 +53,7 @@ class TrackBuilder:
     def track(self, loaded_track: Track) -> None:
         """Unpack a Track proto message into the track waypoints."""
         self._track = loaded_track
-        print(f"Loaded track with {len(loaded_track.waypoints)} waypoints.")
+        logger.info(f"Loaded track with {len(loaded_track.waypoints)} waypoints.")
         self.track_waypoints = [Pose3F64.from_proto(pose) for pose in self._track.waypoints]
         self._loaded = True
 
@@ -140,7 +143,7 @@ class TrackBuilder:
         """Remove the last (appended) segment from the track."""
 
         if self._loaded:
-            print("Cannot pop segment from a loaded track without inserting new segments first.")
+            logger.warning("Cannot pop segment from a loaded track without inserting new segments first.")
             return
 
         if len(self._segment_indices) > 1:  # Ensure there is a segment to pop
@@ -150,7 +153,7 @@ class TrackBuilder:
             # Remove the last segment index
             self._segment_indices.pop()
         else:
-            print("No segment to pop.")
+            logger.info("No segment to pop.")
 
     def unpack_track(self) -> tuple[list[float], list[float], list[float]]:
         """Unpack x and y coordinates and heading from the waypoints for plotting.
@@ -177,9 +180,9 @@ class TrackBuilder:
         """
         if self.track:
             proto_to_json_file(path, self.track)
-            print(f"Track saved to {path}")
+            logger.info(f"Track saved to {path}")
         else:
-            print("No track to save.")
+            logger.warning("No track to save.")
 
     def load_track(self, path: Path) -> None:
         """Import a track from a json file.
@@ -201,7 +204,7 @@ class TrackBuilder:
             self.track_waypoints[-1].a_from_b.translation - track_to_merge.waypoints[0].translation
         )
         if dist_to_current_track > threshold:
-            print("Track to merge is too far from the current track, cannot merge.")
+            logger.warning("Track to merge is too far from the current track, cannot merge.")
             return False
 
         self.track_waypoints.extend([Pose3F64.from_proto(pose) for pose in track_to_merge.waypoints])

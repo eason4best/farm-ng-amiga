@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from math import radians
 from pathlib import Path
 from typing import Dict
@@ -27,6 +28,8 @@ from farm_ng.track.track_pb2 import Track
 from farm_ng_core_pybind import Pose3F64
 from google.protobuf.empty_pb2 import Empty
 from track_planner import TrackBuilder
+
+logger = logging.getLogger("Motion Planner")
 
 
 async def get_current_pose(client: EventClient | None = None, timeout: float = 5.0) -> Optional[Pose3F64]:
@@ -46,9 +49,9 @@ async def get_current_pose(client: EventClient | None = None, timeout: float = 5
             )
             return Pose3F64.from_proto(state.pose)
         except asyncio.TimeoutError:
-            print("Timeout while getting filter state. Using default start pose.")
+            logger.info("Timeout while getting filter state. Using default start pose.")
         except Exception as e:
-            print(f"Error getting filter state: {e}. Using default start pose.")
+            logger.error(f"Error getting filter state: {e}. Using default start pose.")
 
     return None
 
@@ -108,9 +111,9 @@ class MotionPlanner:
                 if maybe_current_pose is not None:
                     self.current_pose = maybe_current_pose
                 else:
-                    print("Current pose is None, ensure your filter is running.")
+                    logger.warning("Current pose is None, ensure your filter is running.")
             except Exception as e:
-                print(f"Error updating current pose: {e}")
+                logger.error(f"Error updating current pose: {e}")
                 return None
 
     async def _get_current_pose(self) -> Pose3F64:
@@ -191,7 +194,7 @@ class MotionPlanner:
             The next track segment (Track)
         """
         if self.current_waypoint_index >= len(self.waypoints):
-            print("No more waypoints to navigate to.")
+            logger.info("No more waypoints to navigate to.")
             asyncio.create_task(self._shutdown())
             return (None, None)
 
@@ -207,7 +210,7 @@ class MotionPlanner:
         # We're switching to the next row
         # 1. Check if we have finished all row end maneuvers
         if self.row_end_segment_index >= 5:
-            print("Finished all row end maneuvers, moving to the next row.")
+            logger.info("Finished all row end maneuvers, moving to the next row.")
             seg_name = f"row_end_5_to_waypoint_{self.current_waypoint_index + 1}"
             return (await self._create_ab_segment_to_next_waypoint(), seg_name)
         else:

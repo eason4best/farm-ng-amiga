@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import signal
 import sys
 from pathlib import Path
@@ -36,6 +37,9 @@ from farm_ng.track.track_pb2 import TrackStatusEnum
 from farm_ng_core_pybind import Pose3F64
 from google.protobuf.empty_pb2 import Empty
 from motion_planner import MotionPlanner
+from utils.canbus import move_robot_forward
+
+logger = logging.getLogger("Navigation Manager")
 
 
 class NavigationManager:
@@ -76,13 +80,13 @@ class NavigationManager:
                 position_record = {'segment_name': segment_name, 'x': x, 'y': y, 'heading': heading}
 
                 self.robot_positions.append(position_record)
-                print(
+                logger.info(
                     f"📍 Recorded robot position for segment '{segment_name}': ({x:.2f}, {y:.2f}, "
                     f"{np.degrees(heading):.1f}°)"
                 )
 
             except Exception as e:
-                print(f"❌ Failed to record robot position: {e}")
+                logger.error(f"❌ Failed to record robot position: {e}")
 
     async def set_track(self, track: Track) -> None:
         """Set the track for the track_follower to follow.
@@ -90,27 +94,27 @@ class NavigationManager:
         Args:
             track: The track to follow
         """
-        print(f"📤 Setting track with {len(track.waypoints)} waypoints...")
+        logger.info(f"📤 Setting track with {len(track.waypoints)} waypoints...")
         try:
             await self.controller_client.request_reply("/set_track", TrackFollowRequest(track=track))
-            print("✅ Track set successfully")
+            logger.info("✅ Track set successfully")
         except Exception as e:
-            print(f"❌ Failed to set track: {e}")
+            logger.error(f"❌ Failed to set track: {e}")
             raise
 
     async def start_following(self) -> None:
         """Start following the currently set track."""
-        print("🚀 Starting track following...")
+        logger.info("🚀 Starting track following...")
         try:
             await self.controller_client.request_reply("/start", Empty())
-            print("✅ Track following started")
+            logger.info("✅ Track following started")
         except Exception as e:
-            print(f"❌ Failed to start track following: {e}")
+            logger.error(f"❌ Failed to start track following: {e}")
             raise
 
     async def monitor_track_state(self) -> None:
         """Monitor the track_follower state and set events based on status."""
-        print("👁️  Starting track state monitoring...")
+        logger.info("👁️  Starting track state monitoring...")
 
         try:
             config = self.controller_client.config
@@ -124,7 +128,7 @@ class NavigationManager:
                     await self._process_track_state(message)
 
         except Exception as e:
-            print(f"❌ Error monitoring track state: {e}")
+            logger.error(f"❌ Error monitoring track state: {e}")
             self.track_failed_event.set()
 
     async def _process_track_state(self, state: TrackFollowerState) -> None:
@@ -144,13 +148,13 @@ class NavigationManager:
         if prev_status != track_status:
             try:
                 status_name = TrackStatusEnum.Name(track_status)
-                print(f"📊 Track status changed: {status_name}")
+                logger.info(f"📊 Track status changed: {status_name}")
             except Exception as e:
-                print(f"❌ Error getting status name: {e}")
+                logger.error(f"❌ Error getting status name: {e}")
 
         # Check for completion or failure
         if track_status == TrackStatusEnum.TRACK_COMPLETE:
-            print("🎉 Track completed successfully!")
+            logger.info("🎉 Track completed successfully!")
             self.track_complete_event.set()
 
         elif track_status in [
@@ -160,9 +164,9 @@ class NavigationManager:
         ]:
             try:
                 status_name = TrackStatusEnum.Name(track_status)
-                print(f"💥 Track failed with status: {status_name}")
+                logger.info(f"💥 Track failed with status: {status_name}")
             except Exception as e:
-                print(f"❌ Error getting status name: {e}")
+                logger.error(f"❌ Error getting status name: {e}")
 
             if not robot_controllable:
                 try:
@@ -174,11 +178,11 @@ class NavigationManager:
                         except Exception as e:
                             # Fallback to the integer value if enum name lookup fails
                             failure_modes.append(f"UNKNOWN({mode})")
-                            print(f"❌ Error getting failure mode name: {e}")
+                            logger.error(f"❌ Error getting failure mode name: {e}")
 
-                    print(f"Robot not controllable. Failure modes: {failure_modes}")
+                    logger.info(f"Robot not controllable. Failure modes: {failure_modes}")
                 except Exception as e:
-                    print(f"Robot not controllable. Failed to get failure modes: {e}")
+                    logger.error(f"Robot not controllable. Failed to get failure modes: {e}")
             self.track_failed_event.set()
 
         # Log cross-track error if available
@@ -190,7 +194,7 @@ class NavigationManager:
         ):
             error = state.progress.cross_track_error
             if error.total_distance > 0.5:  # Only log if significant error
-                print(
+                logger.warning(
                     f"⚠️  Cross-track error: {error.total_distance:.2f}m "
                     f"(lateral: {error.lateral_distance:.2f}m, "
                     f"longitudinal: {error.longitudinal_distance:.2f}m)"
@@ -205,7 +209,7 @@ class NavigationManager:
         Returns:
             True if track completed successfully, False if failed or timed out
         """
-        print(f"⏳ Waiting for track completion (timeout: {timeout}s)...")
+        logger.info(f"⏳ Waiting for track completion (timeout: {timeout}s)...")
 
         try:
             # Wait for either completion or failure
@@ -223,7 +227,7 @@ class NavigationManager:
                 task.cancel()
 
             if not done:
-                print("⏰ Timeout waiting for track completion")
+                logger.warning("⏰ Timeout waiting for track completion")
                 return False
 
             # Check which event was set
@@ -233,7 +237,7 @@ class NavigationManager:
                 return False
 
         except Exception as e:
-            print(f"❌ Error waiting for track completion: {e}")
+            logger.error(f"❌ Error waiting for track completion: {e}")
             return False
 
         return False
@@ -262,19 +266,19 @@ class NavigationManager:
             success = await self.wait_for_track_completion(timeout)
 
             if success:
-                print("✅ Track segment completed successfully")
+                logger.info("✅ Track segment completed successfully")
             else:
-                print("❌ Track segment failed or timed out")
+                logger.warning("❌ Track segment failed or timed out")
 
             return success
 
         except Exception as e:
-            print(f"❌ Error executing track: {e}")
+            logger.error(f"❌ Error executing track: {e}")
             return False
 
     async def run_navigation(self) -> None:
         """Run the complete waypoint navigation sequence."""
-        print("🚁 Starting waypoint navigation...")
+        logger.info("🚁 Starting waypoint navigation...")
 
         # Start monitoring track state
         monitor_task = asyncio.create_task(self.monitor_track_state())
@@ -284,36 +288,45 @@ class NavigationManager:
 
             while not self.shutdown_requested:
                 # Get next track segment
-                print(f"\n--- Segment {segment_count + 1} ---")
+                logger.info(f"\n--- Segment {segment_count + 1} ---")
                 (track_segment, segment_name) = await self.motion_planner.next_track_segment()
                 if track_segment is None:
-                    print("🏁 No more track segments. Navigation complete!")
+                    logger.info("🏁 No more track segments. Navigation complete!")
+                    self.record_robot_position("Final waypoint")
                     break
                 self.record_robot_position(segment_name)
-                print(f"Got track segment '{segment_name}' with {len(track_segment.waypoints)} waypoints")
+                logger.info(f"Got track segment '{segment_name}' with {len(track_segment.waypoints)} waypoints")
                 self.navigation_progress[segment_name] = track_segment
 
                 segment_count += 1
-                print(f"📍 Executing track segment {segment_count} with {len(track_segment.waypoints)} waypoints")
+                logger.info(f"📍 Executing track segment {segment_count} with {len(track_segment.waypoints)} waypoints")
 
                 # Execute the track segment
                 success = await self.execute_single_track(track_segment)
+                failed_attempts: int = 0
 
                 while not success:
-                    print(f"💥 Failed to execute segment {segment_count}. Stopping navigation.")
+                    logger.warning(f"💥 Failed to execute segment {segment_count}. Stopping navigation.")
                     # We might have failed because the filter diverged or CANBUS timed out.
                     # We will try again
+                    failed_attempts += 1
+                    if segment_count == 1 and failed_attempts > 5:
+                        # We're probably just getting stuck because the robot is too far from the path
+                        # Let's move give it a "little push"
+                        move_robot_forward(time_goal=0.5)
+                        logger.info(f"Moving robot forward | Failed attempts: {failed_attempts}")
+                        failed_attempts = 0
                     success = await self.execute_single_track(track_segment)
 
                 # Brief pause between segments
                 await asyncio.sleep(self.delay_between_segments)
 
-            print(f"🎯 Navigation completed after {segment_count} segments")
+            logger.info(f"🎯 Navigation completed after {segment_count} segments")
 
         except KeyboardInterrupt:
-            print("\n🛑 Navigation interrupted by user")
+            logger.info("\n🛑 Navigation interrupted by user")
         except Exception as e:
-            print(f"💥 Navigation failed with error: {e}")
+            logger.error(f"💥 Navigation failed with error: {e}")
         finally:
             # Cleanup
             self.shutdown_requested = True
@@ -336,7 +349,7 @@ async def setup_clients(filter_config_path: Path, controller_config_path: Path) 
     Returns:
         Tuple of (filter_client, controller_client)
     """
-    print("🔧 Setting up service clients...")
+    logger.info("🔧 Setting up service clients...")
 
     # Load filter service config
     filter_config = proto_from_json_file(filter_config_path, EventServiceConfig())
@@ -350,18 +363,18 @@ async def setup_clients(filter_config_path: Path, controller_config_path: Path) 
         raise RuntimeError(f"Expected track_follower service config, got {controller_config.name}")
     controller_client = EventClient(controller_config)
 
-    print(f"✅ Filter client: {filter_config.name}")
-    print(f"✅ Controller client: {controller_config.name}")
+    logger.info(f"✅ Filter client: {filter_config.name}")
+    logger.info(f"✅ Controller client: {controller_config.name}")
 
     return filter_client, controller_client
 
 
-def setup_signal_handlers(orchestrator: NavigationManager) -> None:
+def setup_signal_handlers(nav_manager: NavigationManager) -> None:
     """Setup signal handlers for graceful shutdown."""
 
     def signal_handler(signum, frame):
-        print(f"\n🛑 Received signal {signum}, shutting down gracefully...")
-        orchestrator.shutdown_requested = True
+        logger.info(f"\n🛑 Received signal {signum}, shutting down gracefully...")
+        nav_manager.shutdown_requested = True
         # Let the main loop handle the shutdown
         return
 
@@ -377,7 +390,7 @@ async def main(args) -> None:
         filter_client, controller_client = await setup_clients(args.filter_config, args.controller_config)
 
         # Initialize motion planner
-        print("🗺️  Initializing motion planner...")
+        logger.info("🗺️  Initializing motion planner...")
         motion_planner = MotionPlanner(
             client=filter_client,
             waypoints_path=args.waypoints_path,
@@ -387,29 +400,29 @@ async def main(args) -> None:
             headland_buffer=args.headland_buffer,
         )
 
-        # Create orchestrator
-        orchestrator = NavigationManager(
+        # Create nav_manager
+        nav_manager = NavigationManager(
             filter_client=filter_client,
             controller_client=controller_client,
             motion_planner=motion_planner,
             delay=args.delay,
         )
 
-        setup_signal_handlers(orchestrator=orchestrator)
+        setup_signal_handlers(nav_manager=nav_manager)
 
         # Run navigation
-        await orchestrator.run_navigation()
+        await nav_manager.run_navigation()
 
     except Exception as e:
-        print(f"💥 Fatal error: {e}")
+        logger.error(f"💥 Fatal error: {e}")
 
     finally:
         # Save navigation progress to JSON file
-        progress_path = Path("navigation_progress.json")
+        progress_path = Path("./visualization/navigation_progress.json")
         try:
             # Convert protobuf Track objects to simple [x, y, heading] format
             serializable_progress = {}
-            for segment_name, track in orchestrator.navigation_progress.items():
+            for segment_name, track in nav_manager.navigation_progress.items():
                 x: list[float] = []
                 y: list[float] = []
                 heading: list[float] = []
@@ -429,17 +442,17 @@ async def main(args) -> None:
 
             with open(progress_path, "w") as f:
                 json.dump(serializable_progress, f, indent=2)
-            print(f"✅ Navigation progress saved to {progress_path}")
+            logger.info(f"✅ Navigation progress saved to {progress_path}")
         except Exception as e:
-            print(f"❌ Failed to save navigation progress: {e}")
+            logger.error(f"❌ Failed to save navigation progress: {e}")
 
-        positions_path = Path("robot_positions.json")
+        positions_path = Path("./visualization/robot_positions.json")
         try:
             with open(positions_path, "w") as f:
-                json.dump(orchestrator.robot_positions, f, indent=2)
-            print(f"✅ Robot positions saved to {positions_path}")
+                json.dump(nav_manager.robot_positions, f, indent=2)
+            logger.info(f"✅ Robot positions saved to {positions_path}")
         except Exception as e:
-            print(f"❌ Failed to save robot positions: {e}")
+            logger.error(f"❌ Failed to save robot positions: {e}")
 
         sys.exit(1)
 
@@ -485,12 +498,12 @@ if __name__ == "__main__":
     # Validate file paths
     for path_arg in [args.filter_config, args.waypoints_path, args.controller_config]:
         if not path_arg.exists():
-            print(f"❌ File not found: {path_arg}")
+            logger.error(f"❌ File not found: {path_arg}")
             sys.exit(1)
 
     # Run the main function
     try:
         asyncio.run(main(args))
     except KeyboardInterrupt:
-        print("\n🛑 Interrupted by user")
+        logger.info("\n🛑 Interrupted by user")
         sys.exit(0)
