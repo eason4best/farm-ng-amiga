@@ -57,7 +57,18 @@ class PostProcessingVisualizer:
         # Visualization settings
         self.colors = {
             'surveyed': 'red',
-            'track_segments': ['blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive'],
+            'track_segments': [
+                'blue',
+                'green',
+                'orange',
+                'purple',
+                'brown',
+                'pink',
+                'gray',
+                'olive',
+                'cyan',
+                'magenta',
+            ],
             'robot_positions': 'black',
             'start_point': 'red',
         }
@@ -143,23 +154,10 @@ class PostProcessingVisualizer:
         Returns:
             Tuple of (x_coords, y_coords, headings)
         """
-        x_coords = []
-        y_coords = []
-        headings = []
-
-        waypoints = segment_data.get('waypoints', [])
-        for waypoint in waypoints:
-            # Extract translation
-            translation = waypoint['aFromB']['translation']
-            x_coords.append(translation['x'])
-            y_coords.append(translation['y'])
-
-            # Extract heading from quaternion
-            quat = waypoint['aFromB']['rotation']['unitQuaternion']
-            z_imag = quat['imag'].get('z', 0)
-            real = quat['real']
-            heading = 2 * np.arctan2(z_imag, real)
-            headings.append(heading)
+        # The new format has x, y, heading as direct arrays
+        x_coords = segment_data.get('x', [])
+        y_coords = segment_data.get('y', [])
+        headings = segment_data.get('heading', [])
 
         return x_coords, y_coords, headings
 
@@ -178,7 +176,7 @@ class PostProcessingVisualizer:
             show_waypoint_numbers: Whether to show waypoint numbers
             output_dir: Directory to save plots (default: current directory)
         """
-        plt.figure(figsize=(14, 10))
+        plt.figure(figsize=(16, 12))
 
         # Plot surveyed waypoints
         if self.surveyed_waypoints:
@@ -188,23 +186,25 @@ class PostProcessingVisualizer:
                 survey_y,
                 c=self.colors['surveyed'],
                 marker='s',
-                s=80,
+                s=120,
                 label='Surveyed Waypoints',
-                alpha=0.8,
+                alpha=0.9,
                 edgecolors='darkred',
-                linewidth=1,
+                linewidth=2,
+                zorder=5,
             )
 
             if show_waypoint_numbers:
                 for i, (x, y) in enumerate(zip(survey_x, survey_y)):
                     plt.annotate(
-                        f'S{i+1}',
+                        f'W{i}',
                         (x, y),
-                        xytext=(5, 5),
+                        xytext=(8, 8),
                         textcoords='offset points',
-                        fontsize=8,
+                        fontsize=10,
                         color='darkred',
                         fontweight='bold',
+                        bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8),
                     )
 
             if show_headings:
@@ -218,10 +218,11 @@ class PostProcessingVisualizer:
                     survey_v,
                     angles='xy',
                     scale_units='xy',
-                    scale=4,
+                    scale=3,
                     color='darkred',
-                    alpha=0.7,
-                    width=0.003,
+                    alpha=0.8,
+                    width=0.004,
+                    zorder=4,
                 )
 
         # Plot track segments
@@ -229,22 +230,41 @@ class PostProcessingVisualizer:
             color = self.colors['track_segments'][i % len(self.colors['track_segments'])]
             x_coords, y_coords, headings = self.unpack_track_segment(segment_data)
 
+            if not x_coords:  # Skip empty segments
+                continue
+
             # Plot track path
-            plt.plot(x_coords, y_coords, color=color, linewidth=2.5, label=f'Track: {segment_name}', alpha=0.9)
+            plt.plot(x_coords, y_coords, color=color, linewidth=3, label=f'{segment_name}', alpha=0.8, zorder=2)
 
             # Plot start point of each segment
             plt.scatter(
-                x_coords[0], y_coords[0], c=color, marker='o', s=100, edgecolors='black', linewidth=1.5, alpha=0.9
+                x_coords[0],
+                y_coords[0],
+                c=color,
+                marker='o',
+                s=120,
+                edgecolors='white',
+                linewidth=2,
+                alpha=1.0,
+                zorder=3,
             )
 
             # Plot end point of each segment
             plt.scatter(
-                x_coords[-1], y_coords[-1], c=color, marker='*', s=120, edgecolors='black', linewidth=1, alpha=0.9
+                x_coords[-1],
+                y_coords[-1],
+                c=color,
+                marker='D',
+                s=80,
+                edgecolors='white',
+                linewidth=1.5,
+                alpha=1.0,
+                zorder=3,
             )
 
             if show_headings and len(x_coords) > 0:
                 # Plot heading arrows (every few waypoints to avoid clutter)
-                arrow_interval = max(1, len(x_coords) // 8)
+                arrow_interval = max(1, len(x_coords) // 10)
                 u_coords = np.cos(headings)
                 v_coords = np.sin(headings)
 
@@ -256,10 +276,11 @@ class PostProcessingVisualizer:
                         v_coords[j],
                         angles='xy',
                         scale_units='xy',
-                        scale=3.5,
+                        scale=4,
                         color=color,
-                        alpha=0.8,
+                        alpha=0.6,
                         width=0.002,
+                        zorder=1,
                     )
 
         # Plot recorded robot positions
@@ -269,48 +290,58 @@ class PostProcessingVisualizer:
             plt.scatter(
                 robot_x,
                 robot_y,
-                c=self.colors['robot_positions'],
+                c='lime',
                 marker='^',
-                s=120,
+                s=150,
                 label='Robot Start Positions',
-                edgecolors='white',
+                edgecolors='black',
                 linewidth=2,
-                alpha=0.9,
+                alpha=1.0,
+                zorder=6,
             )
 
-            # Add position numbers and segment names
+            # Add position numbers
             for i, pos in enumerate(self.robot_positions):
                 plt.annotate(
                     f'{i+1}',
                     (pos['x'], pos['y']),
-                    xytext=(0, -15),
+                    xytext=(0, -20),
                     textcoords='offset points',
                     fontsize=9,
-                    color='white',
+                    color='black',
                     fontweight='bold',
                     ha='center',
                     va='center',
+                    bbox=dict(boxstyle='round,pad=0.2', facecolor='lime', alpha=0.8),
                 )
 
-                # Add segment name below the number
-                plt.annotate(
-                    pos['segment_name'],
-                    (pos['x'], pos['y']),
-                    xytext=(0, 15),
-                    textcoords='offset points',
-                    fontsize=7,
-                    color='black',
-                    ha='center',
-                    va='center',
-                    bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.7),
-                )
+                # Robot heading arrow
+                if show_headings:
+                    robot_u = np.cos(pos['heading'])
+                    robot_v = np.sin(pos['heading'])
+                    plt.quiver(
+                        pos['x'],
+                        pos['y'],
+                        robot_u,
+                        robot_v,
+                        angles='xy',
+                        scale_units='xy',
+                        scale=2.5,
+                        color='lime',
+                        width=0.006,
+                        alpha=0.9,
+                        zorder=5,
+                    )
 
         plt.axis('equal')
         plt.grid(True, alpha=0.3)
         plt.xlabel('X (m)', fontsize=12)
         plt.ylabel('Y (m)', fontsize=12)
-        plt.title('Navigation Overview: Surveyed Waypoints, Track Segments & Robot Positions', fontsize=14)
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+        plt.title('Navigation Overview: Surveyed Waypoints, Track Segments & Robot Positions', fontsize=14, pad=20)
+
+        # Create legend with better positioning
+        legend = plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+        legend.set_zorder(10)
 
         # Add statistics text box
         stats_text = f"Surveyed Waypoints: {len(self.surveyed_waypoints)}\n"
@@ -322,9 +353,10 @@ class PostProcessingVisualizer:
             0.98,
             stats_text,
             transform=plt.gca().transAxes,
-            fontsize=10,
+            fontsize=11,
             verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8),
+            bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgray', alpha=0.9),
+            zorder=10,
         )
 
         if save_plot:
@@ -345,30 +377,49 @@ class PostProcessingVisualizer:
             return
 
         for i, (segment_name, segment_data) in enumerate(self.track_segments.items()):
-            plt.figure(figsize=(10, 8))
+            plt.figure(figsize=(12, 10))
 
             color = self.colors['track_segments'][i % len(self.colors['track_segments'])]
             x_coords, y_coords, headings = self.unpack_track_segment(segment_data)
 
+            if not x_coords:  # Skip empty segments
+                continue
+
             # Plot the track segment
-            plt.plot(x_coords, y_coords, color=color, linewidth=3, label=f'Track: {segment_name}')
+            plt.plot(x_coords, y_coords, color=color, linewidth=4, label=f'{segment_name}', zorder=2)
 
             # Plot waypoints
-            plt.scatter(x_coords, y_coords, c=color, marker='o', s=50, alpha=0.7)
+            plt.scatter(x_coords, y_coords, c=color, marker='o', s=40, alpha=0.7, zorder=3)
 
             # Plot start and end points
             plt.scatter(
-                x_coords[0], y_coords[0], c='red', marker='o', s=120, label='Start', edgecolors='black', linewidth=2
+                x_coords[0],
+                y_coords[0],
+                c='green',
+                marker='o',
+                s=150,
+                label='Start',
+                edgecolors='black',
+                linewidth=2,
+                zorder=4,
             )
             plt.scatter(
-                x_coords[-1], y_coords[-1], c='green', marker='*', s=150, label='End', edgecolors='black', linewidth=2
+                x_coords[-1],
+                y_coords[-1],
+                c='red',
+                marker='D',
+                s=120,
+                label='End',
+                edgecolors='black',
+                linewidth=2,
+                zorder=4,
             )
 
             # Plot heading arrows
             u_coords = np.cos(headings)
             v_coords = np.sin(headings)
 
-            arrow_interval = max(1, len(x_coords) // 10)
+            arrow_interval = max(1, len(x_coords) // 15)
             for j in range(0, len(x_coords), arrow_interval):
                 plt.quiver(
                     x_coords[j],
@@ -377,10 +428,11 @@ class PostProcessingVisualizer:
                     v_coords[j],
                     angles='xy',
                     scale_units='xy',
-                    scale=3.5,
+                    scale=3,
                     color=color,
-                    alpha=0.8,
+                    alpha=0.7,
                     width=0.003,
+                    zorder=1,
                 )
 
             # Show corresponding robot position if available
@@ -396,10 +448,11 @@ class PostProcessingVisualizer:
                     robot_pos['y'],
                     c='lime',
                     marker='^',
-                    s=150,
+                    s=180,
                     label='Robot Start Position',
                     edgecolors='black',
                     linewidth=2,
+                    zorder=5,
                 )
 
                 # Robot heading arrow
@@ -412,20 +465,40 @@ class PostProcessingVisualizer:
                     robot_v,
                     angles='xy',
                     scale_units='xy',
-                    scale=2.5,
+                    scale=2,
                     color='lime',
-                    width=0.005,
+                    width=0.006,
+                    zorder=4,
                 )
 
             plt.axis('equal')
             plt.grid(True, alpha=0.3)
-            plt.xlabel('X (m)')
-            plt.ylabel('Y (m)')
-            plt.title(f'Track Segment: {segment_name}')
-            plt.legend()
+            plt.xlabel('X (m)', fontsize=12)
+            plt.ylabel('Y (m)', fontsize=12)
+            plt.title(f'Track Segment: {segment_name}', fontsize=14, pad=20)
+            plt.legend(fontsize=11)
+
+            # Add segment stats
+            stats_text = f"Waypoints: {len(x_coords)}\n"
+            if x_coords:
+                path_length = sum(
+                    np.sqrt((x_coords[j + 1] - x_coords[j]) ** 2 + (y_coords[j + 1] - y_coords[j]) ** 2)
+                    for j in range(len(x_coords) - 1)
+                )
+                stats_text += f"Path Length: {path_length:.2f}m"
+
+            plt.text(
+                0.02,
+                0.98,
+                stats_text,
+                transform=plt.gca().transAxes,
+                fontsize=10,
+                verticalalignment='top',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='lightblue', alpha=0.8),
+            )
 
             if output_dir:
-                plot_path = output_dir / f"segment_{i+1}_{segment_name}.png"
+                plot_path = output_dir / f"segment_{i+1:02d}_{segment_name}.png"
                 plt.savefig(plot_path, dpi=300, bbox_inches='tight')
                 print(f"💾 Segment plot saved to {plot_path}")
 
@@ -461,6 +534,12 @@ class PostProcessingVisualizer:
                         if x_coords:
                             f.write(f"   Start: ({x_coords[0]:.2f}, {y_coords[0]:.2f})\n")
                             f.write(f"   End: ({x_coords[-1]:.2f}, {y_coords[-1]:.2f})\n")
+                            # Calculate path length
+                            path_length = sum(
+                                np.sqrt((x_coords[j + 1] - x_coords[j]) ** 2 + (y_coords[j + 1] - y_coords[j]) ** 2)
+                                for j in range(len(x_coords) - 1)
+                            )
+                            f.write(f"   Path Length: {path_length:.2f}m\n")
                         f.write("\n")
 
                 if self.robot_positions:
@@ -468,7 +547,6 @@ class PostProcessingVisualizer:
                     f.write("-" * 30 + "\n")
                     for i, pos in enumerate(self.robot_positions, 1):
                         f.write(f"{i}. {pos['segment_name']}\n")
-                        f.write(f"   Time: {pos['timestamp']}\n")
                         f.write(f"   Position: ({pos['x']:.2f}, {pos['y']:.2f})\n")
                         f.write(f"   Heading: {np.degrees(pos['heading']):.1f}°\n\n")
 

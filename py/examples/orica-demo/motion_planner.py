@@ -154,17 +154,16 @@ class MotionPlanner:
         Returns:
             The track segment for the row end maneuver (Track)
         """
-        if index < 1 or index > 5:
-            raise ValueError("index must be between 1 and 5")
+        if index < 1 or index > 4:
+            raise ValueError("index must be between 1 and 4")
 
         # Create a turn segment based on the index
         current_pose = await self._get_current_pose()
         track_builder = TrackBuilder(start=current_pose)
         track_segment: Track
         next_frame_b = f"row_end_{index}"
-        if index == 1 or index == 5:
-            # Drive forward – move away from the last hole into a buffer zone,
-            # or re-enter the row, ending parallel to the last hole in row 1.
+        if index == 1:
+            # Drive forward – move away from the last hole into a buffer zone.
             track_builder.create_straight_segment(next_frame_b=next_frame_b, distance=self.headland_buffer, spacing=0.1)
             track_segment = track_builder.track
         elif index == 2 or index == 4:

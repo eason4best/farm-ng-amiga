@@ -36,13 +36,18 @@ from farm_ng.track.track_pb2 import TrackStatusEnum
 from farm_ng_core_pybind import Pose3F64
 from google.protobuf.empty_pb2 import Empty
 from motion_planner import MotionPlanner
-from visualization import plot_track
 
 
 class NavigationManager:
     """Orchestrates waypoint navigation using MotionPlanner and track_follower service."""
 
-    def __init__(self, filter_client: EventClient, controller_client: EventClient, motion_planner: MotionPlanner):
+    def __init__(
+        self,
+        filter_client: EventClient,
+        controller_client: EventClient,
+        motion_planner: MotionPlanner,
+        delay: float = 1.0,
+    ):
         self.filter_client = filter_client
         self.controller_client = controller_client
         self.motion_planner = motion_planner
@@ -52,6 +57,7 @@ class NavigationManager:
         self.shutdown_requested = False
         self.navigation_progress: Dict[str, Track] = {}
         self.robot_positions: List[Dict] = []
+        self.delay_between_segments = delay
 
     def record_robot_position(self, segment_name: str) -> None:
         """Record robot position before starting a track segment.
@@ -266,7 +272,7 @@ class NavigationManager:
             print(f"❌ Error executing track: {e}")
             return False
 
-    async def run_navigation(self, vis: bool) -> None:
+    async def run_navigation(self) -> None:
         """Run the complete waypoint navigation sequence."""
         print("🚁 Starting waypoint navigation...")
 
@@ -286,26 +292,6 @@ class NavigationManager:
                 self.record_robot_position(segment_name)
                 print(f"Got track segment '{segment_name}' with {len(track_segment.waypoints)} waypoints")
                 self.navigation_progress[segment_name] = track_segment
-                if vis:
-                    current_pose_obj = self.motion_planner.current_pose
-                    if current_pose_obj is not None:
-                        translation_array = np.asarray(current_pose_obj.a_from_b.translation)
-
-                        # Extract x, y from numpy array
-                        x = float(translation_array[0])
-                        y = float(translation_array[1])
-
-                        # Extract heading from rotation (this should work as before)
-                        heading = float(current_pose_obj.a_from_b.rotation.log()[-1])
-
-                        # Create pose list for plotting
-                        current_pose_list = [x, y, heading]
-
-                        # Plot with current pose
-                        plot_track(track_segment, current_pose=current_pose_list)
-                    else:
-                        # Plot without current pose
-                        plot_track(track_segment)
 
                 segment_count += 1
                 print(f"📍 Executing track segment {segment_count} with {len(track_segment.waypoints)} waypoints")
@@ -320,7 +306,7 @@ class NavigationManager:
                     success = await self.execute_single_track(track_segment)
 
                 # Brief pause between segments
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(self.delay_between_segments)
 
             print(f"🎯 Navigation completed after {segment_count} segments")
 
@@ -403,13 +389,16 @@ async def main(args) -> None:
 
         # Create orchestrator
         orchestrator = NavigationManager(
-            filter_client=filter_client, controller_client=controller_client, motion_planner=motion_planner
+            filter_client=filter_client,
+            controller_client=controller_client,
+            motion_planner=motion_planner,
+            delay=args.delay,
         )
 
         setup_signal_handlers(orchestrator=orchestrator)
 
         # Run navigation
-        await orchestrator.run_navigation(vis=args.vis)
+        await orchestrator.run_navigation()
 
     except Exception as e:
         print(f"💥 Fatal error: {e}")
@@ -488,7 +477,7 @@ if __name__ == "__main__":
         help="Buffer distance for headland maneuvers in meters (default: 2.0)",
     )
     parser.add_argument(
-        "--vis", action="store_true", help="Enable visualization of the track and waypoints (default: False)"
+        "--delay", type=float, default=1.0, help="Delay between track segments in seconds (default: 1.0)"
     )
 
     args = parser.parse_args()

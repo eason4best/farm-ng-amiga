@@ -14,7 +14,6 @@
 # limitations under the License.
 from __future__ import annotations
 
-import argparse
 import asyncio
 import sys
 import termios
@@ -148,21 +147,16 @@ class WaypointCollector:
                 await self.save_waypoints()
 
 
-async def main(service_config_path: Path) -> None:
+async def main() -> None:
     """Run the filter service client with waypoint collection.
 
     Args:
         service_config_path (Path): The path to the filter service config.
     """
     collector = WaypointCollector()
+    service_config_path = Path("./configs/survey_config.json")
     await collector.run(service_config_path)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        prog="python main.py", description="Amiga filter stream example with waypoint saving."
-    )
-    parser.add_argument("--service-config", type=Path, required=True, help="The filter service config.")
-    args = parser.parse_args()
-
-    asyncio.run(main(args.service_config))
+    asyncio.run(main())
