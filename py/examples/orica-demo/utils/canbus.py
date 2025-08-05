@@ -23,14 +23,14 @@ from farm_ng.core.event_service_pb2 import EventServiceConfig
 from farm_ng.core.events_file_reader import proto_from_json_file
 
 
-async def move_robot_forward(time_goal: float = 0.5) -> None:
+async def move_robot_forward(time_goal: float = 1.5) -> None:
     """Util function to move the robot forward in case it gets stuck.
 
     Args:
         service_config_path (Path): The path to the canbus service config.
     """
     # Initialize the command to send
-    twist = Twist2d(linear_velocity_x=1.0)
+    twist = Twist2d(linear_velocity_x=0.7)
 
     # create a client to the canbus service
     service_config_path = Path("../configs/canbus_config.json")
@@ -38,10 +38,10 @@ async def move_robot_forward(time_goal: float = 0.5) -> None:
     client: EventClient = EventClient(config)
     start = time.monotonic()
     # Hold the loop for the duration
-    while time.monotonic - start < time_goal:
+    while time.monotonic() - start < time_goal:
         # Update and send the twist command
         print(f"Sending linear velocity: {twist.linear_velocity_x:.3f}, angular velocity: {twist.angular_velocity:.3f}")
         await client.request_reply("/twist", twist)
 
         # Sleep to maintain a constant rate
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.1)

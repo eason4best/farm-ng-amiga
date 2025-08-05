@@ -326,6 +326,10 @@ class NavigationManager:
                     logger.info("🏁 No more track segments. Navigation complete!")
                     self.record_robot_position("Final waypoint")
                     break
+                sleep_time: float = self.delay_between_segments
+                if segment_name.startswith("row_end"):
+                    sleep_time = 1.5
+
                 self.record_robot_position(segment_name)
                 logger.info(f"Got track segment '{segment_name}' with {len(track_segment.waypoints)} waypoints")
                 self.navigation_progress[segment_name] = track_segment
@@ -353,7 +357,7 @@ class NavigationManager:
                     success = await self.execute_single_track(track_segment)
 
                 # Brief pause between segments
-                await asyncio.sleep(self.delay_between_segments)
+                await asyncio.sleep(sleep_time)
 
             logger.info(f"🎯 Navigation completed after {segment_count} segments")
 
