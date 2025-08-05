@@ -62,6 +62,8 @@ class NavigationManager:
         self.navigation_progress: Dict[str, Track] = {}
         self.robot_positions: List[Dict] = []
         self.delay_between_segments = delay
+        self.main_task: Optional[asyncio.Task] = None
+        self.monitor_task: Optional[asyncio.Task] = None
 
     def record_robot_position(self, segment_name: str) -> None:
         """Record robot position before starting a track segment.
@@ -122,11 +124,15 @@ class NavigationManager:
 
             async for event, message in self.controller_client.subscribe(subscription, decode=True):
                 if self.shutdown_requested:
+                    logger.info("🛑 Monitor task received shutdown signal")
                     break
 
                 if isinstance(message, TrackFollowerState):
                     await self._process_track_state(message)
 
+        except asyncio.CancelledError:
+            logger.info("🛑 Monitor task cancelled")
+            raise
         except Exception as e:
             logger.error(f"❌ Error monitoring track state: {e}")
             self.track_failed_event.set()
@@ -199,6 +205,29 @@ class NavigationManager:
                     f"(lateral: {error.lateral_distance:.2f}m, "
                     f"longitudinal: {error.longitudinal_distance:.2f}m)"
                 )
+
+    async def _cleanup(self):
+        """Clean up resources and cancel tasks."""
+        logger.info("🧹 Starting cleanup...")
+
+        self.shutdown_requested = True
+
+        # Cancel monitor task
+        if self.monitor_task and not self.monitor_task.done():
+            logger.info("🛑 Cancelling monitor task...")
+            self.monitor_task.cancel()
+            try:
+                await self.monitor_task
+            except asyncio.CancelledError:
+                pass
+
+        # Shutdown motion planner
+        try:
+            await self.motion_planner._shutdown()
+        except Exception as e:
+            logger.error(f"❌ Error shutting down motion planner: {e}")
+
+        logger.info("✅ Cleanup completed")
 
     async def wait_for_track_completion(self, timeout: float = 60.0) -> bool:
         """Wait for track to complete or fail.
@@ -281,12 +310,15 @@ class NavigationManager:
         logger.info("🚁 Starting waypoint navigation...")
 
         # Start monitoring track state
-        monitor_task = asyncio.create_task(self.monitor_track_state())
+        self.monitor_task = asyncio.create_task(self.monitor_track_state())
 
         try:
             segment_count = 0
 
             while not self.shutdown_requested:
+                if self.shutdown_requested:
+                    logger.info("🛑 Shutdown requested, stopping navigation")
+                    break
                 # Get next track segment
                 logger.info(f"\n--- Segment {segment_count + 1} ---")
                 (track_segment, segment_name) = await self.motion_planner.next_track_segment()
@@ -306,6 +338,8 @@ class NavigationManager:
                 failed_attempts: int = 0
 
                 while not success:
+                    if self.shutdown_requested:
+                        break
                     logger.warning(f"💥 Failed to execute segment {segment_count}. Stopping navigation.")
                     # We might have failed because the filter diverged or CANBUS timed out.
                     # We will try again
@@ -313,7 +347,7 @@ class NavigationManager:
                     if segment_count == 1 and failed_attempts > 5:
                         # We're probably just getting stuck because the robot is too far from the path
                         # Let's move give it a "little push"
-                        move_robot_forward(time_goal=0.5)
+                        move_robot_forward(time_goal=1.5)
                         logger.info(f"Moving robot forward | Failed attempts: {failed_attempts}")
                         failed_attempts = 0
                     success = await self.execute_single_track(track_segment)
@@ -323,20 +357,16 @@ class NavigationManager:
 
             logger.info(f"🎯 Navigation completed after {segment_count} segments")
 
+        except asyncio.CancelledError:
+            logger.info("🛑 Navigation task cancelled")
+            raise
         except KeyboardInterrupt:
             logger.info("\n🛑 Navigation interrupted by user")
         except Exception as e:
             logger.error(f"💥 Navigation failed with error: {e}")
         finally:
             # Cleanup
-            self.shutdown_requested = True
-            monitor_task.cancel()
-            await self.motion_planner._shutdown()
-
-            try:
-                await monitor_task
-            except asyncio.CancelledError:
-                pass
+            await self._cleanup()
 
 
 async def setup_clients(filter_config_path: Path, controller_config_path: Path) -> Tuple[EventClient, EventClient]:
@@ -373,10 +403,21 @@ def setup_signal_handlers(nav_manager: NavigationManager) -> None:
     """Setup signal handlers for graceful shutdown."""
 
     def signal_handler(signum, frame):
-        logger.info(f"\n🛑 Received signal {signum}, shutting down gracefully...")
+        logger.info(f"\n🛑 Received signal {signum}, initiating shutdown...")
         nav_manager.shutdown_requested = True
-        # Let the main loop handle the shutdown
-        return
+
+        # Cancel the main navigation task
+        if nav_manager.main_task and not nav_manager.main_task.done():
+            nav_manager.main_task.cancel()
+
+        # For immediate termination on second signal
+        if hasattr(signal_handler, 'call_count'):
+            signal_handler.call_count += 1
+            if signal_handler.call_count > 1:
+                logger.info("🛑 Second signal received, forcing exit")
+                sys.exit(1)
+        else:
+            signal_handler.call_count = 1
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -384,7 +425,7 @@ def setup_signal_handlers(nav_manager: NavigationManager) -> None:
 
 async def main(args) -> None:
     """Main function to orchestrate waypoint navigation."""
-
+    nav_manager = None
     try:
         # Setup clients
         filter_client, controller_client = await setup_clients(args.filter_config, args.controller_config)
@@ -409,10 +450,16 @@ async def main(args) -> None:
         )
 
         setup_signal_handlers(nav_manager=nav_manager)
+        # Store the main task reference for cancellation
+        nav_manager.main_task = asyncio.current_task()
 
         # Run navigation
         await nav_manager.run_navigation()
 
+    except asyncio.CancelledError:
+        logger.info("🛑 Main task cancelled")
+    except KeyboardInterrupt:
+        logger.info("🛑 Keyboard interrupt in main")
     except Exception as e:
         logger.error(f"💥 Fatal error: {e}")
 
@@ -453,6 +500,9 @@ async def main(args) -> None:
             logger.info(f"✅ Robot positions saved to {positions_path}")
         except Exception as e:
             logger.error(f"❌ Failed to save robot positions: {e}")
+
+        if not nav_manager.shutdown_requested:
+            await nav_manager._cleanup()
 
         sys.exit(1)
 
@@ -505,5 +555,9 @@ if __name__ == "__main__":
     try:
         asyncio.run(main(args))
     except KeyboardInterrupt:
-        logger.info("\n🛑 Interrupted by user")
+        logger.info("\n🛑 Final keyboard interrupt")
+    except Exception as e:
+        logger.error(f"💥 Unhandled exception: {e}")
+    finally:
+        logger.info("👋 Script terminated")
         sys.exit(0)

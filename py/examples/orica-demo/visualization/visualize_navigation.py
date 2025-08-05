@@ -54,6 +54,10 @@ class PostProcessingVisualizer:
         self.track_segments = {}
         self.robot_positions = []
 
+        # Coordinate normalization
+        self.x_offset = 0
+        self.y_offset = 0
+
         # Visualization settings
         self.colors = {
             'surveyed': 'red',
@@ -75,6 +79,7 @@ class PostProcessingVisualizer:
 
         # Load all data
         self._load_all_data()
+        self._calculate_offsets()
 
     def _load_all_data(self):
         """Load all navigation data from JSON files."""
@@ -119,6 +124,41 @@ class PostProcessingVisualizer:
         except Exception as e:
             print(f"❌ Failed to load robot positions: {e}")
             self.robot_positions = []
+
+    def _calculate_offsets(self):
+        """Calculate offsets to normalize coordinates to smaller, more readable values."""
+        all_x = []
+        all_y = []
+
+        # Collect all x,y coordinates
+        if self.surveyed_waypoints:
+            survey_x, survey_y, _ = self.unpack_surveyed_waypoints()
+            all_x.extend(survey_x)
+            all_y.extend(survey_y)
+
+        for segment_data in self.track_segments.values():
+            x_coords, y_coords, _ = self.unpack_track_segment(segment_data)
+            all_x.extend(x_coords)
+            all_y.extend(y_coords)
+
+        if self.robot_positions:
+            all_x.extend([pos['x'] for pos in self.robot_positions])
+            all_y.extend([pos['y'] for pos in self.robot_positions])
+
+        if all_x and all_y:
+            # Use the minimum values as offsets to shift coordinates closer to origin
+            self.x_offset = min(all_x)
+            self.y_offset = min(all_y)
+            print(f"🔧 Coordinate normalization: X offset = {self.x_offset:.2f}, Y offset = {self.y_offset:.2f}")
+        else:
+            self.x_offset = 0
+            self.y_offset = 0
+
+    def _normalize_coords(self, x_coords, y_coords):
+        """Apply coordinate normalization."""
+        norm_x = [x - self.x_offset for x in x_coords]
+        norm_y = [y - self.y_offset for y in y_coords]
+        return norm_x, norm_y
 
     def unpack_surveyed_waypoints(self) -> Tuple[List[float], List[float], List[float]]:
         """Unpack surveyed waypoints from JSON format.
@@ -178,50 +218,50 @@ class PostProcessingVisualizer:
         """
         plt.figure(figsize=(16, 12))
 
-        # Plot surveyed waypoints
+        # Plot surveyed waypoints as 10-inch (25.4cm) holes
         if self.surveyed_waypoints:
             survey_x, survey_y, survey_headings = self.unpack_surveyed_waypoints()
-            plt.scatter(
-                survey_x,
-                survey_y,
-                c=self.colors['surveyed'],
-                marker='s',
-                s=120,
-                label='Surveyed Waypoints',
-                alpha=0.9,
-                edgecolors='darkred',
-                linewidth=2,
-                zorder=5,
-            )
+            norm_x, norm_y = self._normalize_coords(survey_x, survey_y)
+
+            # Plot the holes as circles (10 inches = 25.4 cm diameter)
+            hole_radius_m = 0.254 / 2  # 10 inches = 25.4 cm, radius = 12.7 cm
+            for x, y in zip(norm_x, norm_y):
+                circle = plt.Circle((x, y), hole_radius_m, color='red', alpha=0.3, fill=True, zorder=2)
+                plt.gca().add_patch(circle)
+                # Add hole center point
+                plt.scatter(x, y, c='red', marker='+', s=50, linewidth=2, zorder=5, alpha=0.8)
+
+            # Add legend entry for holes
+            plt.scatter([], [], c='red', marker='o', s=100, alpha=0.3, label='10" Target Holes', edgecolors='red')
 
             if show_waypoint_numbers:
-                for i, (x, y) in enumerate(zip(survey_x, survey_y)):
+                for i, (x, y) in enumerate(zip(norm_x, norm_y)):
                     plt.annotate(
                         f'W{i}',
                         (x, y),
-                        xytext=(8, 8),
+                        xytext=(15, 15),
                         textcoords='offset points',
-                        fontsize=10,
+                        fontsize=8,
                         color='darkred',
                         fontweight='bold',
                         bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.8),
                     )
 
             if show_headings:
-                # Plot surveyed waypoint headings
+                # Plot surveyed waypoint headings (smaller arrows)
                 survey_u = np.cos(survey_headings)
                 survey_v = np.sin(survey_headings)
                 plt.quiver(
-                    survey_x,
-                    survey_y,
+                    norm_x,
+                    norm_y,
                     survey_u,
                     survey_v,
                     angles='xy',
                     scale_units='xy',
-                    scale=3,
+                    scale=8,
                     color='darkred',
-                    alpha=0.8,
-                    width=0.004,
+                    alpha=0.7,
+                    width=0.003,
                     zorder=4,
                 )
 
@@ -233,129 +273,126 @@ class PostProcessingVisualizer:
             if not x_coords:  # Skip empty segments
                 continue
 
-            # Plot track path
-            plt.plot(x_coords, y_coords, color=color, linewidth=3, label=f'{segment_name}', alpha=0.8, zorder=2)
+            # Normalize coordinates
+            norm_x, norm_y = self._normalize_coords(x_coords, y_coords)
 
-            # Plot start point of each segment
+            # Plot track path (thinner line)
+            plt.plot(norm_x, norm_y, color=color, linewidth=1.5, label=f'{segment_name}', alpha=0.7, zorder=2)
+
+            # Plot start point of each segment (smaller)
             plt.scatter(
-                x_coords[0],
-                y_coords[0],
-                c=color,
-                marker='o',
-                s=120,
-                edgecolors='white',
-                linewidth=2,
-                alpha=1.0,
-                zorder=3,
+                norm_x[0], norm_y[0], c=color, marker='o', s=30, edgecolors='white', linewidth=1, alpha=1.0, zorder=3
             )
 
-            # Plot end point of each segment
+            # Plot end point of each segment (smaller)
             plt.scatter(
-                x_coords[-1],
-                y_coords[-1],
-                c=color,
-                marker='D',
-                s=80,
-                edgecolors='white',
-                linewidth=1.5,
-                alpha=1.0,
-                zorder=3,
+                norm_x[-1], norm_y[-1], c=color, marker='D', s=25, edgecolors='white', linewidth=1, alpha=1.0, zorder=3
             )
 
             if show_headings and len(x_coords) > 0:
-                # Plot heading arrows (every few waypoints to avoid clutter)
-                arrow_interval = max(1, len(x_coords) // 10)
+                # Plot heading arrows (smaller and less frequent)
+                arrow_interval = max(1, len(x_coords) // 5)
                 u_coords = np.cos(headings)
                 v_coords = np.sin(headings)
 
                 for j in range(0, len(x_coords), arrow_interval):
                     plt.quiver(
-                        x_coords[j],
-                        y_coords[j],
+                        norm_x[j],
+                        norm_y[j],
                         u_coords[j],
                         v_coords[j],
                         angles='xy',
                         scale_units='xy',
-                        scale=4,
+                        scale=12,
                         color=color,
-                        alpha=0.6,
+                        alpha=0.5,
                         width=0.002,
                         zorder=1,
                     )
 
-        # Plot recorded robot positions
+        # Plot recorded robot positions (tiny dots for precision)
         if self.robot_positions:
             robot_x = [pos['x'] for pos in self.robot_positions]
             robot_y = [pos['y'] for pos in self.robot_positions]
+            norm_robot_x, norm_robot_y = self._normalize_coords(robot_x, robot_y)
+
             plt.scatter(
-                robot_x,
-                robot_y,
-                c='lime',
-                marker='^',
-                s=150,
-                label='Robot Start Positions',
-                edgecolors='black',
-                linewidth=2,
-                alpha=1.0,
-                zorder=6,
+                norm_robot_x, norm_robot_y, c='lime', marker='.', s=1, label='Robot Stop Positions', alpha=1.0, zorder=6
             )
 
-            # Add position numbers
-            for i, pos in enumerate(self.robot_positions):
+            # Add position numbers (smaller)
+            for i, (x, y) in enumerate(zip(norm_robot_x, norm_robot_y)):
                 plt.annotate(
                     f'{i+1}',
-                    (pos['x'], pos['y']),
-                    xytext=(0, -20),
+                    (x, y),
+                    xytext=(8, 8),
                     textcoords='offset points',
-                    fontsize=9,
+                    fontsize=6,
                     color='black',
                     fontweight='bold',
                     ha='center',
                     va='center',
-                    bbox=dict(boxstyle='round,pad=0.2', facecolor='lime', alpha=0.8),
+                    bbox=dict(boxstyle='round,pad=0.1', facecolor='white', alpha=0.8),
                 )
 
-                # Robot heading arrow
-                if show_headings:
+            # Robot heading arrows (smaller)
+            if show_headings:
+                for i, pos in enumerate(self.robot_positions):
                     robot_u = np.cos(pos['heading'])
                     robot_v = np.sin(pos['heading'])
                     plt.quiver(
-                        pos['x'],
-                        pos['y'],
+                        norm_robot_x[i],
+                        norm_robot_y[i],
                         robot_u,
                         robot_v,
                         angles='xy',
                         scale_units='xy',
-                        scale=2.5,
+                        scale=10,
                         color='lime',
-                        width=0.006,
-                        alpha=0.9,
+                        width=0.004,
+                        alpha=0.8,
                         zorder=5,
                     )
 
         plt.axis('equal')
-        plt.grid(True, alpha=0.3)
-        plt.xlabel('X (m)', fontsize=12)
-        plt.ylabel('Y (m)', fontsize=12)
-        plt.title('Navigation Overview: Surveyed Waypoints, Track Segments & Robot Positions', fontsize=14, pad=20)
+
+        # Add fine grid for precision analysis (10 cm = 0.1 m grid)
+        ax = plt.gca()
+
+        # Get current axis limits and round them for cleaner grid
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+
+        # Major grid every 0.5m, minor grid every 0.1m (10 cm)
+        x_major = np.arange(np.floor(xlim[0] / 0.5) * 0.5, np.ceil(xlim[1] / 0.5) * 0.5 + 0.5, 0.5)
+        y_major = np.arange(np.floor(ylim[0] / 0.5) * 0.5, np.ceil(ylim[1] / 0.5) * 0.5 + 0.5, 0.5)
+        x_minor = np.arange(np.floor(xlim[0] / 0.1) * 0.1, np.ceil(xlim[1] / 0.1) * 0.1 + 0.1, 0.1)
+        y_minor = np.arange(np.floor(ylim[0] / 0.1) * 0.1, np.ceil(ylim[1] / 0.1) * 0.1 + 0.1, 0.1)
+
+        ax.set_xticks(x_major)
+        ax.set_yticks(y_major)
+        ax.set_xticks(x_minor, minor=True)
+        ax.set_yticks(y_minor, minor=True)
+
+        ax.grid(True, which='major', alpha=0.5, linewidth=0.8)
+        ax.grid(True, which='minor', alpha=0.2, linewidth=0.5)
+
+        plt.xlabel('X (m) - Normalized', fontsize=12)
+        plt.ylabel('Y (m) - Normalized', fontsize=12)
+        plt.title('Robot Performance Analysis: 10" Target Holes vs Robot Stop Positions', fontsize=14, pad=20)
 
         # Create legend with better positioning
         legend = plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
         legend.set_zorder(10)
 
-        # Add statistics text box
-        stats_text = f"Surveyed Waypoints: {len(self.surveyed_waypoints)}\n"
-        stats_text += f"Track Segments: {len(self.track_segments)}\n"
-        stats_text += f"Robot Positions: {len(self.robot_positions)}"
-
         plt.text(
             0.02,
             0.98,
-            stats_text,
+            f"Track Segments: {len(self.track_segments)}\nRobot Positions: {len(self.robot_positions)}",
             transform=plt.gca().transAxes,
-            fontsize=11,
+            fontsize=10,
             verticalalignment='top',
-            bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgray', alpha=0.9),
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='lightblue', alpha=0.9),
             zorder=10,
         )
 
@@ -428,10 +465,10 @@ class PostProcessingVisualizer:
                     v_coords[j],
                     angles='xy',
                     scale_units='xy',
-                    scale=3,
+                    scale=2,
                     color=color,
-                    alpha=0.7,
-                    width=0.003,
+                    alpha=0.8,
+                    width=0.005,
                     zorder=1,
                 )
 
@@ -465,9 +502,9 @@ class PostProcessingVisualizer:
                     robot_v,
                     angles='xy',
                     scale_units='xy',
-                    scale=2,
+                    scale=1.5,
                     color='lime',
-                    width=0.006,
+                    width=0.008,
                     zorder=4,
                 )
 
@@ -504,56 +541,6 @@ class PostProcessingVisualizer:
 
             plt.tight_layout()
             plt.show()
-
-    def generate_summary_report(self, output_dir: Path = None):
-        """Generate a text summary report of the navigation session."""
-        if output_dir is None:
-            output_dir = Path.cwd()
-
-        report_path = output_dir / "navigation_summary_report.txt"
-
-        try:
-            with open(report_path, 'w') as f:
-                f.write("NAVIGATION SESSION SUMMARY REPORT\n")
-                f.write("=" * 50 + "\n\n")
-                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-
-                f.write("OVERVIEW:\n")
-                f.write("-" * 20 + "\n")
-                f.write(f"Surveyed Waypoints: {len(self.surveyed_waypoints)}\n")
-                f.write(f"Track Segments Executed: {len(self.track_segments)}\n")
-                f.write(f"Robot Start Positions Recorded: {len(self.robot_positions)}\n\n")
-
-                if self.track_segments:
-                    f.write("TRACK SEGMENTS DETAILS:\n")
-                    f.write("-" * 30 + "\n")
-                    for i, (name, segment_data) in enumerate(self.track_segments.items(), 1):
-                        x_coords, y_coords, headings = self.unpack_track_segment(segment_data)
-                        f.write(f"{i}. {name}\n")
-                        f.write(f"   Waypoints: {len(x_coords)}\n")
-                        if x_coords:
-                            f.write(f"   Start: ({x_coords[0]:.2f}, {y_coords[0]:.2f})\n")
-                            f.write(f"   End: ({x_coords[-1]:.2f}, {y_coords[-1]:.2f})\n")
-                            # Calculate path length
-                            path_length = sum(
-                                np.sqrt((x_coords[j + 1] - x_coords[j]) ** 2 + (y_coords[j + 1] - y_coords[j]) ** 2)
-                                for j in range(len(x_coords) - 1)
-                            )
-                            f.write(f"   Path Length: {path_length:.2f}m\n")
-                        f.write("\n")
-
-                if self.robot_positions:
-                    f.write("ROBOT START POSITIONS:\n")
-                    f.write("-" * 30 + "\n")
-                    for i, pos in enumerate(self.robot_positions, 1):
-                        f.write(f"{i}. {pos['segment_name']}\n")
-                        f.write(f"   Position: ({pos['x']:.2f}, {pos['y']:.2f})\n")
-                        f.write(f"   Heading: {np.degrees(pos['heading']):.1f}°\n\n")
-
-            print(f"📄 Summary report saved to {report_path}")
-
-        except Exception as e:
-            print(f"❌ Failed to generate summary report: {e}")
 
 
 def main():
@@ -627,11 +614,6 @@ def main():
     if args.individual_segments:
         print("🖼️  Creating individual segment plots...")
         visualizer.plot_segments_individually(output_dir=args.output_dir if not args.no_save else None)
-
-    # Generate summary report
-    if not args.no_save:
-        print("📄 Generating summary report...")
-        visualizer.generate_summary_report(output_dir=args.output_dir)
 
     print("✅ Visualization complete!")
 
