@@ -229,6 +229,41 @@ class NavigationManager:
 
         logger.info("✅ Cleanup completed")
 
+    def get_user_choice(self) -> str:
+        """Get user input for navigation choice.
+
+        Returns:
+            'continue' to continue to next waypoint, 'redo' to redo current segment
+        """
+        print("\n" + "=" * 50)
+        print("🤖 NAVIGATION CHOICE")
+        print("=" * 50)
+        print("What would you like to do next?")
+        print("  1. Continue to the next waypoint")
+        print("  2. Redo the current segment")
+        print("  q. Quit navigation")
+        print("-" * 50)
+
+        while True:
+            try:
+                choice = input("Enter your choice (1/2/q): ").strip().lower()
+
+                if choice in ['1', 'c', 'continue']:
+                    print("➡️  Continuing to next waypoint...")
+                    return 'continue'
+                elif choice in ['2', 'r', 'redo']:
+                    print("🔄 Redoing current segment...")
+                    return 'redo'
+                elif choice in ['q', 'quit', 'exit']:
+                    print("🛑 Quitting navigation...")
+                    return 'quit'
+                else:
+                    print("❌ Invalid choice. Please enter 1, 2, or q.")
+
+            except (EOFError, KeyboardInterrupt):
+                print("\n🛑 Navigation interrupted by user")
+                return 'quit'
+
     async def wait_for_track_completion(self, timeout: float = 60.0) -> bool:
         """Wait for track to complete or fail.
 
@@ -319,14 +354,36 @@ class NavigationManager:
                 if self.shutdown_requested:
                     logger.info("🛑 Shutdown requested, stopping navigation")
                     break
+
+                # Get user choice before proceeding
+                user_choice = self.get_user_choice()
+
+                if user_choice == 'quit':
+                    logger.info("🛑 User requested quit, stopping navigation")
+                    self.shutdown_requested = True
+                    break
+
+                if user_choice == 'redo':
+                    # Redo the last segment with recalculated path
+                    logger.info("🔄 Redoing last segment with recalculated path...")
+
+                    # Get a new track segment to the same target
+                    (track_segment, segment_name) = await self.motion_planner.redo_last_segment()
+
+                else:
+                    (track_segment, segment_name) = await self.motion_planner.next_track_segment()
+
                 # Get next track segment
                 logger.info(f"\n--- Segment {segment_count + 1} ---")
-                (track_segment, segment_name) = await self.motion_planner.next_track_segment()
+
                 if track_segment is None:
                     logger.info("🏁 No more track segments. Navigation complete!")
                     self.record_robot_position("Final waypoint")
                     break
+
+                # Determine sleep time between segments
                 sleep_time: float = self.delay_between_segments
+
                 if segment_name.startswith("row_end"):
                     sleep_time = 1.5
 

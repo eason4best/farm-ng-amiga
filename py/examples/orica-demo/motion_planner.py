@@ -187,6 +187,33 @@ class MotionPlanner:
             await self.pose_query_task
             self.pose_query_task = None
 
+    async def redo_last_segment(self) -> Tuple[Optional[Track], Optional[str]]:
+        """Redo the last segment.
+        NOTE: It does not work for row end maneuvers, only for AB segments.
+
+        Returns:
+            The last track segment (Track) and its name.
+        """
+        if self.current_waypoint_index == 0 or self.current_waypoint_index is None:
+            logger.info("No previous segment to redo.")
+            return (None, None)
+
+        # Check if we're completing a row end maneuver
+        if self.current_waypoint_index == self.last_row_waypoint_index:
+            # In this case, we need to check if we are the the last waypoint of the first row (i.e., row end index == 1)
+            # Or if we have already completed the row end maneuvers and want to go again to the first waypoint
+            # of the next row
+            if self.row_end_segment_index == 1:
+                # We are about to switch to the next row, but we haven't started the row end maneuvers yet.
+                # So we just reset our index and let the motion planner handle the next segment.
+                self.current_waypoint_index -= 1
+            # else: In this case, we are already in the row end maneuvers and we just want to redo the last segment.
+            # Don't reset the index, because if so, we would end up repeating the row end maneuvers
+        else:  # We're not trying to switch rows, just redo the last AB segment
+            self.current_waypoint_index -= 1
+
+        return await self.next_track_segment()
+
     async def next_track_segment(self) -> Tuple[Optional[Track], Optional[str]]:
         """Get the next track segment to navigate to.
 
