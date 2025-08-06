@@ -6,4 +6,3 @@ python main.py --filter-config ./configs/filter_config.json \
  --turn-direction left \
  --row-spacing 5.9 \
  --headland-buffer 6.0 \
- --delay 5.0 \

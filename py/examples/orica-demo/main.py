@@ -45,13 +45,7 @@ logger = logging.getLogger("Navigation Manager")
 class NavigationManager:
     """Orchestrates waypoint navigation using MotionPlanner and track_follower service."""
 
-    def __init__(
-        self,
-        filter_client: EventClient,
-        controller_client: EventClient,
-        motion_planner: MotionPlanner,
-        delay: float = 1.0,
-    ):
+    def __init__(self, filter_client: EventClient, controller_client: EventClient, motion_planner: MotionPlanner):
         self.filter_client = filter_client
         self.controller_client = controller_client
         self.motion_planner = motion_planner
@@ -61,7 +55,6 @@ class NavigationManager:
         self.shutdown_requested = False
         self.navigation_progress: Dict[str, Track] = {}
         self.robot_positions: List[Dict] = []
-        self.delay_between_segments = delay
         self.main_task: Optional[asyncio.Task] = None
         self.monitor_task: Optional[asyncio.Task] = None
 
@@ -381,12 +374,6 @@ class NavigationManager:
                     self.record_robot_position("Final waypoint")
                     break
 
-                # Determine sleep time between segments
-                sleep_time: float = self.delay_between_segments
-
-                if segment_name.startswith("row_end"):
-                    sleep_time = 1.5
-
                 self.record_robot_position(segment_name)
                 logger.info(f"Got track segment '{segment_name}' with {len(track_segment.waypoints)} waypoints")
                 self.navigation_progress[segment_name] = track_segment
@@ -412,9 +399,6 @@ class NavigationManager:
                         logger.info(f"Moving robot forward | Failed attempts: {failed_attempts}")
                         failed_attempts = 0
                     success = await self.execute_single_track(track_segment)
-
-                # Brief pause between segments
-                await asyncio.sleep(sleep_time)
 
             logger.info(f"🎯 Navigation completed after {segment_count} segments")
 
@@ -504,10 +488,7 @@ async def main(args) -> None:
 
         # Create nav_manager
         nav_manager = NavigationManager(
-            filter_client=filter_client,
-            controller_client=controller_client,
-            motion_planner=motion_planner,
-            delay=args.delay,
+            filter_client=filter_client, controller_client=controller_client, motion_planner=motion_planner
         )
 
         setup_signal_handlers(nav_manager=nav_manager)
@@ -599,9 +580,6 @@ if __name__ == "__main__":
         type=float,
         default=2.0,
         help="Buffer distance for headland maneuvers in meters (default: 2.0)",
-    )
-    parser.add_argument(
-        "--delay", type=float, default=1.0, help="Delay between track segments in seconds (default: 1.0)"
     )
 
     args = parser.parse_args()
