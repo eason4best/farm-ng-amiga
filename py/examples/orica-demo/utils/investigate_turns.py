@@ -32,7 +32,7 @@ from farm_ng_core_pybind import Pose3F64
 from google.protobuf.empty_pb2 import Empty
 
 sys.path.append(str(Path(__file__).parent.parent))
-from track_planner import TrackBuilder
+from track_planner import TrackBuilder  # noqa: E402
 
 logger = logging.getLogger("Investigate Turns")
 
