@@ -33,7 +33,7 @@ async def move_robot_forward(time_goal: float = 1.5) -> None:
     twist = Twist2d(linear_velocity_x=0.7)
 
     # create a client to the canbus service
-    service_config_path = Path("../configs/canbus_config.json")
+    service_config_path = Path("./configs/canbus_config.json")
     config: EventServiceConfig = proto_from_json_file(service_config_path, EventServiceConfig())
     client: EventClient = EventClient(config)
     start = time.monotonic()

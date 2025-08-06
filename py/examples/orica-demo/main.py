@@ -395,9 +395,10 @@ class NavigationManager:
                     if segment_count == 1 and failed_attempts > 5:
                         # We're probably just getting stuck because the robot is too far from the path
                         # Let's move give it a "little push"
-                        move_robot_forward(time_goal=1.5)
+                        await move_robot_forward(time_goal=1.5)
                         logger.info(f"Moving robot forward | Failed attempts: {failed_attempts}")
                         failed_attempts = 0
+                    track_segment, segment_name = await self.motion_planner.redo_last_segment()
                     success = await self.execute_single_track(track_segment)
 
             logger.info(f"🎯 Navigation completed after {segment_count} segments")
@@ -479,6 +480,7 @@ async def main(args) -> None:
         logger.info("🗺️  Initializing motion planner...")
         motion_planner = MotionPlanner(
             client=filter_client,
+            tool_config_path=args.tool_config_path,
             waypoints_path=args.waypoints_path,
             last_row_waypoint_index=args.last_row_waypoint_index,
             turn_direction=args.turn_direction,
@@ -557,6 +559,7 @@ if __name__ == "__main__":
     # Required arguments
     parser.add_argument("--filter-config", type=Path, required=True, help="Path to filter service config JSON file")
     parser.add_argument("--waypoints-path", type=Path, required=True, help="Path to waypoints JSON file (Track format)")
+    parser.add_argument("--tool-config-path", type=Path, required=True, help="Path to tool configuration JSON file")
     parser.add_argument(
         "--controller-config", type=Path, required=True, help="Path to track_follower service config JSON file"
     )

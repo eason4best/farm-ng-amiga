@@ -1,6 +1,7 @@
 #!/bin/bash
 python main.py --filter-config ./configs/filter_config.json \
  --controller-config ./configs/controller_config.json \
+ --tool-config-path ./configs/tool_config.json \
  --waypoints-path ./surveyed-waypoints/2025-08-04_11-26-01_waypoints_shifted.json \
  --last-row-waypoint-index 4 \
  --turn-direction left \

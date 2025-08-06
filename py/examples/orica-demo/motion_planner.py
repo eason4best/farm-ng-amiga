@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from math import radians
 from pathlib import Path
@@ -25,7 +26,9 @@ from farm_ng.core.event_client import EventClient
 from farm_ng.core.events_file_reader import proto_from_json_file
 from farm_ng.filter.filter_pb2 import FilterState
 from farm_ng.track.track_pb2 import Track
+from farm_ng_core_pybind import Isometry3F64
 from farm_ng_core_pybind import Pose3F64
+from farm_ng_core_pybind import Rotation3F64
 from google.protobuf.empty_pb2 import Empty
 from track_planner import TrackBuilder
 
@@ -63,6 +66,7 @@ class MotionPlanner:
         self,
         client: EventClient,
         waypoints_path: Path | str,
+        tool_config_path: Path | str,
         last_row_waypoint_index: int,
         turn_direction: str,
         row_spacing: float,
@@ -96,9 +100,53 @@ class MotionPlanner:
         except Exception as e:
             raise RuntimeError(f"Failed to load waypoints from {waypoints_path}: {e}")
 
-        self.waypoints = waypoints_dict
+        # Load tool offsets
+        self.tool_offset = self._load_tool_offset(tool_config_path)
+
+        # Transform hole coordinates to robot coordinates
+        self.waypoints = self._transform_holes_to_robot_poses(waypoints_dict)
 
         self.pose_query_task = asyncio.create_task(self._update_current_pose())
+
+    def _load_tool_offset(self, tool_offsets_path: Path) -> Pose3F64:
+        """Load tool offset from JSON file."""
+        with open(tool_offsets_path, 'r') as f:
+            offset_data = json.load(f)
+
+        translation = offset_data["translation"]
+        robot_from_tool = Pose3F64(
+            a_from_b=Isometry3F64(
+                translation=[translation["x"], translation["y"], translation["z"]], rotation=Rotation3F64()
+            ),
+            frame_a="robot",
+            frame_b="tool",
+        )
+        return robot_from_tool
+
+    def _transform_holes_to_robot_poses(self, hole_poses: Dict[int, Pose3F64]) -> Dict[int, Pose3F64]:
+        """Transform hole coordinates to robot center coordinates."""
+        robot_poses = {}
+
+        for idx, hole_pose in hole_poses.items():
+            # The loaded pose represents world_from_hole, but it came in as world_from_robot
+            # We need to fix the frame assignment first
+            world_from_hole = Pose3F64(
+                a_from_b=hole_pose.a_from_b,  # Same transform
+                frame_a="world",
+                frame_b="hole",  # Change frame_b to "hole"
+                tangent_of_b_in_a=hole_pose.tangent_of_b_in_a,
+            )
+
+            # Now calculate where robot should be
+            # world_from_robot = world_from_hole * hole_from_robot
+            hole_from_robot = self.tool_offset.inverse()
+            hole_from_robot.frame_a = "hole"  # Make sure frames match
+            hole_from_robot.frame_b = "robot"
+
+            world_from_robot = world_from_hole * hole_from_robot
+            robot_poses[idx] = world_from_robot
+
+        return robot_poses
 
     async def _update_current_pose(self):
         """Update the current pose from the filter."""
