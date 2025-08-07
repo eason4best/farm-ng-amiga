@@ -154,7 +154,7 @@ async def main() -> None:
         service_config_path (Path): The path to the filter service config.
     """
     collector = WaypointCollector()
-    service_config_path = Path("./configs/survey_config.json")
+    service_config_path = Path("../configs/survey_config.json")
     await collector.run(service_config_path)
 
 
