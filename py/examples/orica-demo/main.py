@@ -237,8 +237,10 @@ class NavigationManager:
             'continue' to continue to next waypoint, 'redo' to redo current segment
         """
 
-        if self.no_stop:
-            logger.info("🚀 No stop mode enabled, automatically continuing to next waypoint")
+        if self.no_stop or "waypoint" not in self.curr_segment_name:
+            logger.info(
+                "🚀 Either no stop mode enabled or going to the next row, automatically continuing to next waypoint"
+            )
             return 'continue'
 
         print("\n" + "=" * 50)
@@ -361,10 +363,8 @@ class NavigationManager:
                     logger.info("🛑 Shutdown requested, stopping navigation")
                     break
 
-                user_choice: str = 'continue'
-                if "waypoint" in self.curr_segment_name:
-                    # Get user choice before proceeding
-                    user_choice = self.get_user_choice()
+                # Get user choice before proceeding
+                user_choice: str = self.get_user_choice()
 
                 if user_choice == 'quit':
                     logger.info("🛑 User requested quit, stopping navigation")
