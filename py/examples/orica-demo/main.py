@@ -45,7 +45,13 @@ logger = logging.getLogger("Navigation Manager")
 class NavigationManager:
     """Orchestrates waypoint navigation using MotionPlanner and track_follower service."""
 
-    def __init__(self, filter_client: EventClient, controller_client: EventClient, motion_planner: MotionPlanner):
+    def __init__(
+        self,
+        filter_client: EventClient,
+        controller_client: EventClient,
+        motion_planner: MotionPlanner,
+        no_stop: bool = False,
+    ):
         self.filter_client = filter_client
         self.controller_client = controller_client
         self.motion_planner = motion_planner
@@ -57,6 +63,8 @@ class NavigationManager:
         self.robot_positions: List[Dict] = []
         self.main_task: Optional[asyncio.Task] = None
         self.monitor_task: Optional[asyncio.Task] = None
+        self.curr_segment_name: str = "start"
+        self.no_stop = no_stop
 
     def record_robot_position(self, segment_name: str) -> None:
         """Record robot position before starting a track segment.
@@ -228,6 +236,11 @@ class NavigationManager:
         Returns:
             'continue' to continue to next waypoint, 'redo' to redo current segment
         """
+
+        if self.no_stop:
+            logger.info("🚀 No stop mode enabled, automatically continuing to next waypoint")
+            return 'continue'
+
         print("\n" + "=" * 50)
         print("🤖 NAVIGATION CHOICE")
         print("=" * 50)
@@ -348,8 +361,10 @@ class NavigationManager:
                     logger.info("🛑 Shutdown requested, stopping navigation")
                     break
 
-                # Get user choice before proceeding
-                user_choice = self.get_user_choice()
+                user_choice: str = 'continue'
+                if "waypoint" in self.curr_segment_name:
+                    # Get user choice before proceeding
+                    user_choice = self.get_user_choice()
 
                 if user_choice == 'quit':
                     logger.info("🛑 User requested quit, stopping navigation")
@@ -376,6 +391,7 @@ class NavigationManager:
 
                 self.record_robot_position(segment_name)
                 logger.info(f"Got track segment '{segment_name}' with {len(track_segment.waypoints)} waypoints")
+                self.curr_segment_name = segment_name
                 self.navigation_progress[segment_name] = track_segment
 
                 segment_count += 1
@@ -490,7 +506,10 @@ async def main(args) -> None:
 
         # Create nav_manager
         nav_manager = NavigationManager(
-            filter_client=filter_client, controller_client=controller_client, motion_planner=motion_planner
+            filter_client=filter_client,
+            controller_client=controller_client,
+            motion_planner=motion_planner,
+            no_stop=args.no_stop,
         )
 
         setup_signal_handlers(nav_manager=nav_manager)
@@ -584,6 +603,7 @@ if __name__ == "__main__":
         default=2.0,
         help="Buffer distance for headland maneuvers in meters (default: 2.0)",
     )
+    parser.add_argument("--no-stop", action="store_true", help="Disable stopping at each waypoint")
 
     args = parser.parse_args()
 
