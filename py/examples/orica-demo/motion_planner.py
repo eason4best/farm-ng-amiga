@@ -16,12 +16,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from enum import Enum
 from math import radians
 from pathlib import Path
 from typing import Dict
 from typing import Optional
 from typing import Tuple
 
+import numpy as np
 from farm_ng.core.event_client import EventClient
 from farm_ng.core.events_file_reader import proto_from_json_file
 from farm_ng.filter.filter_pb2 import FilterState
@@ -31,6 +33,16 @@ from farm_ng_core_pybind import Pose3F64
 from farm_ng_core_pybind import Rotation3F64
 from google.protobuf.empty_pb2 import Empty
 from track_planner import TrackBuilder
+
+
+class FirstManeuver(Enum):
+    """Enum to represent the first maneuver type."""
+
+    AB = "ab_segment"
+    TURN_THEN_AB = "turn_then_ab_segment"
+    LATERAL_CORRECTION = "lateral_correction_segment"
+    REPOSITIONING = "repositioning_segment"
+
 
 logger = logging.getLogger("Motion Planner")
 
@@ -178,6 +190,151 @@ class MotionPlanner:
 
         return current_pose
 
+    def _angle_difference(self, from_angle: float, to_angle: float) -> float:
+        """Calculate the shortest angular difference between two angles."""
+        diff = to_angle - from_angle
+        # Wrap to [-π, π]
+        while diff > np.pi:
+            diff -= 2 * np.pi
+        while diff < -np.pi:
+            diff += 2 * np.pi
+        return diff
+
+    async def _analyze_approach_scenario(self) -> dict:
+        """Analyze the current robot state relative to the first goal."""
+
+        current_pose = await self._get_current_pose()
+        goal_pose = self.waypoints.get(1)
+
+        if goal_pose is None:
+            raise RuntimeError("First waypoint (index 1) not found in waypoints")
+
+        # Transform goal to robot frame to get relative position
+        robot_from_goal = current_pose.inverse() * goal_pose
+        goal_in_robot_frame = robot_from_goal.log()
+
+        delta_x = goal_in_robot_frame[0]  # Forward/backward (North)
+        delta_y = goal_in_robot_frame[1]  # Left/right (West)
+        delta_heading = goal_in_robot_frame[-1]  # Yaw difference
+
+        # Calculate bearing angle - how far off from "straight behind" we are
+        bearing_angle = abs(np.arctan2(abs(delta_y), abs(delta_x))) if delta_x != 0 else np.pi / 2
+
+        return {
+            'delta_x': delta_x,
+            'delta_y': delta_y,
+            'delta_heading': delta_heading,
+            'bearing_angle': bearing_angle,
+            'bearing_degrees': np.degrees(bearing_angle),
+            'longitudinal_distance': abs(delta_x),
+            'lateral_distance': abs(delta_y),
+            'heading_error': abs(delta_heading),
+            'is_behind_goal': delta_x > 0,
+        }
+
+    async def _determine_first_maneuver(self) -> FirstManeuver:
+        """Determine first maneuver strategy based on bearing and heading."""
+
+        analysis = await self._analyze_approach_scenario()
+
+        # Thresholds
+        BEARING_THRESHOLD = np.radians(20)  # 20 degrees | relatively small delta y compared to delta x
+        HEADING_THRESHOLD = np.radians(10)  # 10 degrees | relatively small heading error
+        MIN_LONGITUDINAL_DISTANCE = (
+            2.0  # 2 meters | ensure we're at least 2 m behind the goal to ensure a smooth arrival
+        )
+
+        bearing = analysis['bearing_angle']
+        heading_error = analysis['heading_error']
+        is_behind = analysis['is_behind_goal']
+        longitudinal = analysis['longitudinal_distance']
+
+        # First check if the robot needs to be repositioned
+        if not is_behind and longitudinal < MIN_LONGITUDINAL_DISTANCE:
+            # If we're not behind the goal and too close, we need to reposition
+            return FirstManeuver.REPOSITIONING
+
+        # Good bearing (roughly behind the goal)
+        if bearing < BEARING_THRESHOLD:
+            # Good heading --> Go straight to the next waypoint
+            if heading_error <= HEADING_THRESHOLD:
+                return FirstManeuver.AB
+            else:  # Heading is bad, let's align the robot first and then send it
+                return FirstManeuver.TURN_THEN_AB
+        # Bad bearing (too much lateral offset)
+        else:
+            return FirstManeuver.LATERAL_CORRECTION
+
+    async def _create_lateral_correction(self) -> Track:
+        "Drive robot perpendicular to correct lateral offset, then approach goal."
+
+        analysis = await self._analyze_approach_scenario()
+
+        goal_pose = self.waypoints.get(1)
+
+        if goal_pose is None:
+            raise RuntimeError("First waypoint (index 1) not found in waypoints")
+
+        # Get current and goal headings in world frame
+        current_pose = await self._get_current_pose()
+        current_heading = current_pose.a_from_b.rotation.log()[-1]
+        goal_heading = goal_pose.a_from_b.rotation.log()[-1]
+
+        # Calculate perpendicular direction to the goal heading
+        # If goal is pointing North (0°), perpendicular could be East (90°) or West (-90°)
+        # We choose based on which side the goal is on
+        goal_direction_sign = 1 if analysis['delta_y'] > 0 else -1  # Which side is goal on?
+        perpendicular_heading = goal_heading + (np.pi / 2) * goal_direction_sign
+
+        turn_to_perpendicular = self._angle_difference(current_heading, perpendicular_heading)
+
+        # Create the track
+        track_builder = TrackBuilder(start=current_pose)
+
+        # Step 1: Turn to face perpendicular to goal
+        track_builder.create_turn_segment(
+            next_frame_b="facing_goal_laterally", angle=turn_to_perpendicular, spacing=0.05
+        )
+
+        # Step 2: Drive towards the goal until we're close laterally
+        lateral_correction_distance = analysis['lateral_distance']
+        track_builder.create_straight_segment(
+            next_frame_b="laterally_aligned", distance=lateral_correction_distance, spacing=0.1
+        )
+
+        # Step 3: Turn to align with the goal heading
+        turn_to_goal_heading = self._angle_difference(perpendicular_heading, goal_heading)
+        track_builder.create_turn_segment(
+            next_frame_b="aligned_to_goal_heading", angle=turn_to_goal_heading, spacing=0.05
+        )
+
+        # Step 4: Drive straight to goal
+        track_builder.create_ab_segment(next_frame_b="waypoint_1", final_pose=goal_pose, spacing=0.1)
+
+        self.current_waypoint_index += 1
+
+        return track_builder.track
+
+    async def _create_turn_and_ab(self) -> Track:
+        """Create a track consisting of a turn in place and an AB segment."""
+        # First calculate how much we need to turn to align to the goal
+        current_pose = await self._get_current_pose()
+        goal_pose = self.waypoints.get(1)
+
+        if goal_pose is None:
+            raise RuntimeError("First waypoint (index 1) not found in waypoints")
+
+        turn_angle = self._angle_difference(
+            current_pose.a_from_b.rotation.log()[-1], goal_pose.a_from_b.rotation.log()[-1]
+        )
+        track_builder = TrackBuilder(start=current_pose)
+        track_builder.create_turn_segment(next_frame_b="aligned_to_goal", angle=turn_angle, spacing=0.05)
+        track_builder.create_ab_segment(next_frame_b="waypoint_1", final_pose=goal_pose, spacing=0.1)
+
+        self.current_waypoint_index += 1
+
+        return track_builder.track
+
     async def _create_ab_segment_to_next_waypoint(self) -> Track:
         """Create an AB segment to the next waypoint.
 
@@ -272,6 +429,26 @@ class MotionPlanner:
             logger.info("No more waypoints to navigate to.")
             asyncio.create_task(self._shutdown())
             return (None, None)
+
+        # Check if this is the very first maneuver:
+        if self.current_waypoint_index == 0:
+            seg_name: Optional[str] = "waypoint_0_to_1"
+            track: Optional[Track] = None
+            maneuver_type: FirstManeuver = await self._determine_first_maneuver()
+            if maneuver_type == FirstManeuver.AB:
+                track = await self._create_ab_segment_to_next_waypoint()
+            elif maneuver_type == FirstManeuver.REPOSITIONING:
+                logger.error("Robot is not behind goal. Reposition it first")
+                seg_name = None
+            elif maneuver_type == FirstManeuver.TURN_THEN_AB:
+                track = await self._create_turn_and_ab()
+            elif maneuver_type == FirstManeuver.LATERAL_CORRECTION:
+                track = await self._create_lateral_correction()
+            else:
+                logger.error(f"Unknown maneuver type: {maneuver_type}")
+                seg_name = None
+
+            return (track, seg_name)
 
         # Check if we're switching to the next row or just moving to the next waypoint
         if self.current_waypoint_index != self.last_row_waypoint_index:
