@@ -15,11 +15,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import termios
 import time
 import tty
 from pathlib import Path
+from typing import Optional
 
 from farm_ng.core.event_client import EventClient
 from farm_ng.core.event_service_pb2 import EventServiceConfig
@@ -29,12 +31,15 @@ from farm_ng.filter.filter_pb2 import DivergenceCriteria
 from farm_ng.track.track_pb2 import Track
 from farm_ng_core_pybind import Pose3F64
 
+logger = logging.getLogger("Waypoint Surveying")
+
 
 class WaypointCollector:
     def __init__(self):
         self.current_pose: Pose3F64 | None = None
         self.waypoints: Track = Track()
         self.waypoint_counter = 1
+        self.file_name: Optional[Path] = None
 
     async def filter_listener_task(self, config: EventServiceConfig):
         """Task to listen for filter messages and update current state."""
@@ -46,7 +51,7 @@ class WaypointCollector:
 
             if not message.has_converged:
                 self.current_pose = None
-                print(f"Filter diverged due to: {divergence_criteria}")
+                logger.error(f"Filter diverged due to: {divergence_criteria}")
 
             else:
                 self.current_pose = pose
@@ -65,7 +70,7 @@ class WaypointCollector:
     async def keyboard_input_task(self):
         """Task to handle keyboard input."""
         loop = asyncio.get_event_loop()
-        print("Press 'a' to add waypoint, 's' to save, 'q' to quit")
+        logger.info("Press 'a' to add waypoint, 's' to save, 'q' to quit")
 
         while True:
             try:
@@ -77,51 +82,54 @@ class WaypointCollector:
                 elif char.lower() == 's':
                     await self.save_waypoints()
                 elif char.lower() == 'q':
-                    print("\nQuitting...")
+                    logger.info("\nSaving waypoints and quitting...")
                     break
 
             except Exception as e:
-                print(f"Error in keyboard input: {e}")
+                logger.error(f"Error in keyboard input: {e}")
                 break
 
     async def add_waypoint(self):
         """Add current filter state as a waypoint."""
         if self.current_pose is None:
-            print("No filter state available yet. Wait for first message.")
+            logger.warning("No filter state available yet. Wait for first message.")
             return
 
         self.waypoints.waypoints.append(self.current_pose.to_proto())
 
-        print("\n*** WAYPOINT ADDED ***")
-        print(f"Pose: {self.current_pose}")
+        logger.info(f"\n NEW WAYPOINT ADDED: Total Waypoints: {self.waypoint_counter}")
 
         self.waypoint_counter += 1
 
     async def save_waypoints(self):
         """Save waypoints dictionary to JSON file."""
         if not self.waypoints.waypoints:
-            print("No waypoints to save.")
+            logger.error("No waypoints to save.")
             return
 
-        date_str = time.strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"./{date_str}_waypoints.json"
+        # Create file name if it doesn't exist
+        # If it exists (meaning we have already saved stuff, we will just overwrite it)
+        if self.file_name is None:
+            date_str = time.strftime("%Y-%m-%d_%H-%M-%S")
+            filename = f"./{date_str}_waypoints.json"
+            self.file_name = Path(filename)
 
         try:
-            proto_to_json_file(filename, self.waypoints)
-            print(f"Waypoints saved to '{filename}'")
+            proto_to_json_file(self.file_name, self.waypoints)
+            logger.info(f"Waypoints saved to '{self.file_name}'")
         except Exception as e:
-            print(f"Error saving waypoints: {e}")
+            logger.error(f"Error saving waypoints: {e}")
 
     async def run(self, service_config_path: Path):
         """Run the waypoint collector with both filter listener and keyboard input."""
         config: EventServiceConfig = proto_from_json_file(service_config_path, EventServiceConfig())
 
-        print("Starting waypoint collector...")
-        print("Commands:")
-        print("  'a' - Add current position as waypoint")
-        print("  's' - Save waypoints to JSON file")
-        print("  'q' - Quit")
-        print("\nWaiting for filter messages...")
+        logger.info("Starting waypoint collector...")
+        logger.info("Commands:")
+        logger.info("  'a' - Add current position as waypoint")
+        logger.info("  's' - Save waypoints to JSON file")
+        logger.info("  'q' - Quit")
+        logger.info("\nWaiting for filter messages...")
 
         # Create tasks for both filter listening and keyboard input
         filter_task = asyncio.create_task(self.filter_listener_task(config))
@@ -129,7 +137,7 @@ class WaypointCollector:
 
         try:
             # Wait for either task to complete (keyboard task will complete on 'q')
-            done, pending = await asyncio.wait([filter_task, keyboard_task], return_when=asyncio.FIRST_COMPLETED)
+            _, pending = await asyncio.wait([filter_task, keyboard_task], return_when=asyncio.FIRST_COMPLETED)
 
             # Cancel remaining tasks
             for task in pending:
@@ -140,7 +148,7 @@ class WaypointCollector:
                     pass
 
         except KeyboardInterrupt:
-            print("\nReceived Ctrl+C, shutting down...")
+            logger.warning("\nReceived Ctrl+C, shutting down...")
         finally:
             # Save waypoints before exiting if any were collected
             if self.waypoints:

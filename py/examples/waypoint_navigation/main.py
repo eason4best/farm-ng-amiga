@@ -243,33 +243,33 @@ class NavigationManager:
             )
             return 'continue'
 
-        print("\n" + "=" * 50)
-        print("🤖 NAVIGATION CHOICE")
-        print("=" * 50)
-        print("What would you like to do next?")
-        print("  1. Continue to the next waypoint")
-        print("  2. Redo the current segment")
-        print("  q. Quit navigation")
-        print("-" * 50)
+        logger.info("\n" + "=" * 50)
+        logger.info("🤖 NAVIGATION CHOICE")
+        logger.info("=" * 50)
+        logger.info("What would you like to do next?")
+        logger.info("  1. Continue to the next waypoint")
+        logger.info("  2. Redo the current segment")
+        logger.info("  q. Quit navigation")
+        logger.info("-" * 50)
 
         while True:
             try:
-                choice = input("Enter your choice (1/2/q): ").strip().lower()
+                choice = input("Enter your choice (c/r/q): ").strip().lower()
 
                 if choice in ['1', 'c', 'continue']:
-                    print("➡️  Continuing to next waypoint...")
+                    logger.info("➡️  Continuing to next waypoint...")
                     return 'continue'
                 elif choice in ['2', 'r', 'redo']:
-                    print("🔄 Redoing current segment...")
+                    logger.info("🔄 Redoing current segment...")
                     return 'redo'
                 elif choice in ['q', 'quit', 'exit']:
-                    print("🛑 Quitting navigation...")
+                    logger.info("🛑 Quitting navigation...")
                     return 'quit'
                 else:
-                    print("❌ Invalid choice. Please enter 1, 2, or q.")
+                    logger.info("❌ Invalid choice. Please enter c, r, or q.")
 
             except (EOFError, KeyboardInterrupt):
-                print("\n🛑 Navigation interrupted by user")
+                logger.info("\n🛑 Navigation interrupted by user")
                 return 'quit'
 
     async def wait_for_track_completion(self, timeout: float = 60.0) -> bool:
