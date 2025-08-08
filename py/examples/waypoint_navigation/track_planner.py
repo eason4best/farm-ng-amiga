@@ -98,9 +98,6 @@ class TrackBuilder:
         # Calculate total distance
         distance = np.linalg.norm(final_pose.a_from_b.translation - initial_pose.a_from_b.translation)
 
-        if distance < 0.01:  # Too close, skip
-            return
-
         # Number of intermediate points
         num_points = max(1, int(distance / spacing))
 
