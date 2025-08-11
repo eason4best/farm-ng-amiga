@@ -415,6 +415,10 @@ class NavigationManager:
                         logger.info(f"Moving robot forward | Failed attempts: {failed_attempts}")
                         failed_attempts = 0
                     track_segment, segment_name = await self.motion_planner.redo_last_segment()
+                    if track_segment is None:
+                        logger.info("🏁 Fatal error, we can't redo since we're still in the first maneuver.")
+                        self.record_robot_position("Final waypoint")
+                        break
                     success = await self.execute_single_track(track_segment)
 
             logger.info(f"🎯 Navigation completed after {segment_count} segments")

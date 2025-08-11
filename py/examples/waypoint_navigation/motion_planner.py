@@ -125,7 +125,8 @@ class MotionPlanner:
 
         self.pose_query_task = asyncio.create_task(self._update_current_pose())
         self.first_maneuver_state = FirstManeuverState.NOT_STARTED
-        self.first_maneuver: List[Pose3F64] = []
+        self.first_maneuver_poses: List[Pose3F64] = []
+        self.last_first_maneuver_pose: Optional[Pose3F64] = None
 
     def _load_tool_offset(self, tool_offsets_path: Path) -> Pose3F64:
         """Load tool offset from JSON file."""
@@ -293,6 +294,16 @@ class MotionPlanner:
         """
         if self.current_waypoint_index == 0 or self.current_waypoint_index is None:
             logger.info("No previous segment to redo.")
+            if self.first_maneuver_state == FirstManeuverState.IN_PROGRESS:
+                goal = self.last_first_maneuver_pose
+                if goal is None:
+                    raise RuntimeError("No last first maneuver pose to redo. But we're in progress")
+                current_pose = await self._get_current_pose()
+                builder = TrackBuilder(start=current_pose)
+                builder.create_ab_segment(next_frame_b="goal_pose", final_pose=goal, spacing=0.1)
+                track = builder.track
+                seg_name = f"redo_first_approach_{len(self.first_maneuver_poses)}"
+                return (track, seg_name)
             return (None, None)
 
         # Check if we're completing a row end maneuver
@@ -349,6 +360,7 @@ class MotionPlanner:
                 if len(self.first_maneuver_poses) > 0:
                     current_position = await self._get_current_pose()
                     target_pose = self.first_maneuver_poses.pop()
+                    self.last_first_maneuver_pose = target_pose  # Save the last pose for potential redoing
 
                     track_builder = TrackBuilder(start=current_position)
                     track_builder.create_ab_segment(
