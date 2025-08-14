@@ -160,7 +160,7 @@ class MotionPlanner:
             # Now calculate where robot should be
             # world_from_robot = world_from_hole * hole_from_robot
             hole_from_robot = self.tool_offset.inverse()
-            hole_from_robot.frame_a = "hole"  # Make sure frames match
+            hole_from_robot.frame_a = "hole"
             hole_from_robot.frame_b = "robot"
 
             world_from_robot = world_from_hole * hole_from_robot
