@@ -1,4 +1,4 @@
-"""Example plotting a pre-recorded track."""
+"""Enhanced track plotter for motion planning debugging."""
 # Copyright (c) farm-ng, inc.
 #
 # Licensed under the Amiga Development Kit License (the "License");
@@ -50,15 +50,44 @@ def unpack_track(track: Track) -> tuple[list[float], list[float], list[float]]:
     return x_values, y_values, headings
 
 
-def plot_track(x_values: list[float], y_values: list[float], headings: list[float]) -> None:
-    """Plot a track from a Track proto message.
+def plot_track_debug(x_values: list[float], y_values: list[float], headings: list[float]) -> None:
+    """Plot a track with special formatting for motion planning debugging.
+
+    First waypoint (current position): Red arrow
+    Last waypoint (goal position): Green arrow
+    Intermediate waypoints (approach segments): Blue arrows
 
     Args:
         x_values: (list[float]) The x coordinates of the track.
         y_values: (list[float]) The y coordinates of the track.
         headings: (list[float]) The heading values of the track.
     """
+    plt.figure(figsize=(8, 8))
 
+    # Plot each waypoint with different colors
+    for i, (x, y, heading) in enumerate(zip(x_values, y_values, headings)):
+        dx = np.cos(heading) * 0.05
+        dy = np.sin(heading) * 0.05
+
+        if i == 0:
+            # Current position - Red arrow
+            plt.arrow(x, y, dx, dy, head_width=0.035, fc='red', ec='red')
+        elif i == len(x_values) - 1:
+            # Goal position - Green arrow
+            plt.arrow(x, y, dx, dy, head_width=0.035, fc='green', ec='green')
+        else:
+            # Approach segments - Blue arrows
+            plt.arrow(x, y, dx, dy, head_width=0.035, fc='blue', ec='blue')
+
+    plt.title('Track waypoints')
+    plt.xlabel('X [m]')
+    plt.ylabel('Y [m]')
+    plt.grid(True)
+    plt.show()
+
+
+def plot_track(x_values: list[float], y_values: list[float], headings: list[float]) -> None:
+    """Original plot function - kept for compatibility."""
     # Plotting
     plt.figure(figsize=(8, 8))
 
@@ -90,34 +119,32 @@ def plot_track(x_values: list[float], y_values: list[float], headings: list[floa
     plt.show()
 
 
-def main(track_path: Path) -> None:
+def main(track_path: Path, debug_mode: bool = False) -> None:
     """Plot a track from a json file containing a Track proto message.
 
     Args:
         track_path: (Path) The filepath of the track to plot.
+        debug_mode: (bool) Use debug plotting mode for motion planning analysis.
     """
     # Read the track and package in a Track proto message
     track: Track = proto_from_json_file(track_path, Track())
-
-    # NOTE: If you have a deprecated FilterTrack proto message instead of a Track proto message,
-    # you can convert it to a Track proto message using the following code instead:
-    # from farm_ng.filter.filter_pb2 import FilterTrack
-    # from farm_ng.track.utils import filter_track_to_track
-    # filter_track: FilterTrack = proto_from_json_file(track_path, FilterTrack())
-    # track: Track = filter_track_to_track(filter_track)
 
     # Unpack the track into lists of x, y, and heading values
     x_values, y_values, headings = unpack_track(track)
 
     # Plot the track
-    plot_track(x_values, y_values, headings)
+    if debug_mode:
+        plot_track_debug(x_values, y_values, headings)
+    else:
+        plot_track(x_values, y_values, headings)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="python main.py", description="Amiga track-plotter example.")
     parser.add_argument("--track", type=Path, required=True, help="The filepath of the track to plot.")
+    parser.add_argument("--debug", action="store_true", help="Use debug mode for motion planning analysis.")
     args = parser.parse_args()
 
     track_path = Path(args.track).resolve()
 
-    main(track_path)
+    main(track_path, debug_mode=args.debug)

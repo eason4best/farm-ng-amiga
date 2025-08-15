@@ -48,8 +48,8 @@ class ApproachPlanner:
         self.goal_pose = goal_pose
 
         # Thresholds
-        self.LATERAL_THRESHOLD = 0.10  # 10cm
-        self.MIN_LONGITUDINAL_DISTANCE = 5.0  # 5m target distance
+        self.LATERAL_THRESHOLD = 0.1  # 10 cm
+        self.MIN_LONGITUDINAL_DISTANCE = 5.0  # 5 m target distance
         self.HEADING_THRESHOLD = np.radians(3)  # 3 degrees
         self.MIN_BACKUP_DISTANCE = 2.0  # Minimum distance before doing lateral correction
 
@@ -143,7 +143,6 @@ class ApproachPlanner:
         """Get poses for lateral correction strategy."""
         poses = []
         current_pos = self.current_pose.a_from_b.translation
-        goal_pos = self.goal_pose.a_from_b.translation
 
         # 1. Turn to face perpendicular to goal (towards goal direction)
         perpendicular_rotation = self._get_perpendicular_rotation_towards_goal()
@@ -154,11 +153,12 @@ class ApproachPlanner:
         )
         poses.append(turn1_pose)
 
-        # 2. Drive to match goal's y-coordinate
+        # 2. Drive to be aligned laterally with the goal (maintain current longitudinal distance)
+        # Use current longitudinal distance (abs of robot_in_goal_frame[0]) to stay at same distance behind goal
+        current_longitudinal_distance = abs(self.robot_in_goal_frame[0])
+        target_position = self._get_position_behind_goal(current_longitudinal_distance)
         lateral_pose = Pose3F64(
-            a_from_b=Isometry3F64(
-                translation=np.array([current_pos[0], goal_pos[1], current_pos[2]]), rotation=perpendicular_rotation
-            ),
+            a_from_b=Isometry3F64(translation=target_position, rotation=perpendicular_rotation),
             frame_a="world",
             frame_b="robot",
         )
@@ -167,8 +167,7 @@ class ApproachPlanner:
         # 3. Turn to goal heading
         turn2_pose = Pose3F64(
             a_from_b=Isometry3F64(
-                translation=np.array([current_pos[0], goal_pos[1], current_pos[2]]),
-                rotation=self.goal_pose.a_from_b.rotation,  # Goal's absolute rotation
+                translation=target_position, rotation=self.goal_pose.a_from_b.rotation  # Goal's absolute rotation
             ),
             frame_a="world",
             frame_b="robot",
@@ -219,7 +218,6 @@ class ApproachPlanner:
         """Get poses for backup then lateral correction strategy."""
         poses = []
         current_pos = self.current_pose.a_from_b.translation
-        goal_pos = self.goal_pose.a_from_b.translation
 
         # 1. Turn to face opposite of goal
         opposite_rotation = self._get_opposite_rotation()
@@ -247,11 +245,10 @@ class ApproachPlanner:
         )
         poses.append(turn2_pose)
 
-        # 4. Drive to match goal's y-coordinate
+        # 4. Drive to be properly aligned behind the goal (lateral correction)
+        target_position = self._get_position_behind_goal(self.MIN_LONGITUDINAL_DISTANCE)
         lateral_pose = Pose3F64(
-            a_from_b=Isometry3F64(
-                translation=np.array([backup_x, goal_pos[1], current_pos[2]]), rotation=perpendicular_rotation
-            ),
+            a_from_b=Isometry3F64(translation=target_position, rotation=perpendicular_rotation),
             frame_a="world",
             frame_b="robot",
         )
@@ -259,9 +256,7 @@ class ApproachPlanner:
 
         # 5. Turn to goal heading
         turn3_pose = Pose3F64(
-            a_from_b=Isometry3F64(
-                translation=np.array([backup_x, goal_pos[1], current_pos[2]]), rotation=self.goal_pose.a_from_b.rotation
-            ),
+            a_from_b=Isometry3F64(translation=target_position, rotation=self.goal_pose.a_from_b.rotation),
             frame_a="world",
             frame_b="robot",
         )
@@ -304,23 +299,41 @@ class ApproachPlanner:
         # Transform to world frame
         return current_pose * relative_movement
 
+    def _get_position_behind_goal(self, distance: float) -> np.ndarray:
+        """Calculate a position that is 'distance' meters behind the goal in the goal's coordinate frame."""
+        # Create a pose that is 'distance' meters behind the goal in goal's local frame
+        behind_goal_local = Pose3F64(
+            a_from_b=Isometry3F64(
+                translation=np.array([-distance, 0.0, 0.0]),  # Negative X = behind in goal's frame
+                rotation=Rotation3F64(),
+            ),
+            frame_a="robot",
+            frame_b="world",
+        )
+
+        # Transform to world coordinates
+        behind_goal_world = self.goal_pose * behind_goal_local
+        return behind_goal_world.a_from_b.translation
+
     def get_final_poses(self) -> List[Pose3F64]:
         """Get the final poses for each segment based on the strategy."""
 
+        final_poses: List[Pose3F64] = []
+
         if self.strategy == FirstApproachStrategy.DIRECT_AB:
-            return [self.goal_pose]
+            final_poses = [self.goal_pose]
 
         elif self.strategy == FirstApproachStrategy.HEADING_CORRECTION_ONLY:
-            return self._get_heading_correction_poses()
+            final_poses = self._get_heading_correction_poses()
 
         elif self.strategy == FirstApproachStrategy.LATERAL_CORRECTION:
-            return self._get_lateral_correction_poses()
+            final_poses = self._get_lateral_correction_poses()
 
         elif self.strategy == FirstApproachStrategy.BACKUP_THEN_HEADING_CORRECTION:
-            return self._get_backup_then_heading_poses()
+            final_poses = self._get_backup_then_heading_poses()
 
         elif self.strategy == FirstApproachStrategy.BACKUP_THEN_LATERAL:
-            return self._get_backup_then_lateral_poses()
+            final_poses = self._get_backup_then_lateral_poses()
 
         elif self.strategy == FirstApproachStrategy.REPOSITIONING_NEEDED:
             raise RuntimeError("Robot is not behind the goal, repositioning needed")
@@ -328,7 +341,36 @@ class ApproachPlanner:
         else:
             raise ValueError(f"Unknown strategy: {self.strategy}")
 
+        # For troubleshooting
+        track = Track()
+        track.waypoints.append(self.current_pose.to_proto())
+        for i, pose in enumerate(final_poses):
+            track.waypoints.append(pose.to_proto())
+            self.print_log(pose, f"Approach Segment {i}")
+
+        track.waypoints.append(self.goal_pose.to_proto())
+
+        filename = Path("../track_plotter/approach_track.json")
+        proto_to_json_file(filename, track)
+
+        return final_poses
+
     def print_log(self, pose: Pose3F64, pose_name: str):
+        # Always print goal pose first
+        goal_pose = self.goal_pose
+        goal_translation = goal_pose.a_from_b.translation
+        goal_heading = goal_pose.a_from_b.rotation.log()[-1]
+        print(f"Goal | Pose: x={goal_translation[0]:.3f}, y={goal_translation[1]:.3f}, heading: {goal_heading:.3f}")
+
+        # Always print current pose
+        current_pose = self.current_pose
+        current_translation = current_pose.a_from_b.translation
+        current_heading = current_pose.a_from_b.rotation.log()[-1]
+        print(
+            f"Current | Pose: x={current_translation[0]:.3f}, y={current_translation[1]:.3f}, "
+            f"heading: {current_heading:.3f}"
+        )
+
         translation = pose.a_from_b.translation
         heading = pose.a_from_b.rotation.log()[-1]
         print(f"{pose_name} | Pose: x={translation[0]:.3f}, y={translation[1]:.3f}, heading: {heading:.3f}")
