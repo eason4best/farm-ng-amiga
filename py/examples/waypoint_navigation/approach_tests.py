@@ -45,7 +45,7 @@ def run_test_case(case_name, goal_pose, robot_pose, expected_strategy=None):
     """Run a single test case and print results."""
     print(f"\n{'='*60}")
     print(f"TEST CASE: {case_name}")
-    print("{'='*60}")
+    print(f"{'='*60}")
 
     # Extract positions and headings for display
     goal_pos = goal_pose.a_from_b.translation

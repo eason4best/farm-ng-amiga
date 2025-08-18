@@ -37,8 +37,8 @@ from farm_ng.track.track_pb2 import TrackStatusEnum
 from farm_ng_core_pybind import Pose3F64
 from google.protobuf.empty_pb2 import Empty
 from motion_planner import MotionPlanner
-from utils.canbus import move_robot_forward
-from utils.canbus import stop_robot
+from utils.navigation_utils import move_robot_forward
+from utils.navigation_utils import stop_robot
 
 logger = logging.getLogger("Navigation Manager")
 

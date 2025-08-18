@@ -346,7 +346,7 @@ class ApproachPlanner:
         track.waypoints.append(self.current_pose.to_proto())
         for i, pose in enumerate(final_poses):
             track.waypoints.append(pose.to_proto())
-            self.print_log(pose, f"Approach Segment {i}")
+            # self.print_log(pose, f"Approach Segment {i}")
 
         track.waypoints.append(self.goal_pose.to_proto())
 
@@ -374,29 +374,3 @@ class ApproachPlanner:
         translation = pose.a_from_b.translation
         heading = pose.a_from_b.rotation.log()[-1]
         print(f"{pose_name} | Pose: x={translation[0]:.3f}, y={translation[1]:.3f}, heading: {heading:.3f}")
-
-
-if __name__ == "__main__":
-    zero_tangent = np.zeros((6, 1), dtype=np.float64)
-    goal_pose: Pose3F64 = Pose3F64(
-        a_from_b=Isometry3F64(), frame_a="world", frame_b="robot", tangent_of_b_in_a=zero_tangent
-    )
-    robot_pose = Pose3F64(
-        a_from_b=Isometry3F64(
-            translation=np.array([-0.2, -5.0, 0]), rotation=Rotation3F64.Rz(-np.pi / 4)
-        ),  # 45 degrees
-        frame_a="world",
-        frame_b="robot",
-    )
-
-    planner = ApproachPlanner(goal_pose=goal_pose, current_pose=robot_pose)
-    poses: List[Pose3F64] = planner.get_final_poses()
-    print(f"Strategy: {planner.strategy}")
-    print(f"Got: {len(poses)} poses")
-    track = Track()
-    track.waypoints.append(robot_pose.to_proto())
-    for pose in poses:
-        track.waypoints.append(pose.to_proto())
-
-    filename = Path("../track_plotter/approach_track.json")
-    proto_to_json_file(filename, track)

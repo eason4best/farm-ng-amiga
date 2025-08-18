@@ -94,3 +94,39 @@ async def stop_robot() -> None:
         await asyncio.sleep(0.1)
 
     logger.info("Robot stopped successfully.")
+
+
+async def e_stop():
+    """Util function to emergency stop the robot."""
+    # 1. Try to "break" the robot
+    MAX_RETRIES = 5
+    twist = Twist2d(linear_velocity_x=0.0, angular_velocity=0.0)
+
+    try:
+        canbus_config_path = Path("./configs/canbus_config.json")
+        can_config: EventServiceConfig = proto_from_json_file(canbus_config_path, EventServiceConfig())
+    except FileNotFoundError:
+        try:
+            canbus_config_path = Path("../configs/canbus_config.json")
+            can_config: EventServiceConfig = proto_from_json_file(canbus_config_path, EventServiceConfig())
+        except Exception as e:
+            raise RuntimeError(f"Couldn't find canbus config on neither location: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Error loading canbus config: {e}")
+
+    can_client: EventClient = EventClient(can_config)
+    twist_success: Optional[Empty] = None
+    for _ in range(MAX_RETRIES):
+        twist_success = await can_client.request_reply("/twist", twist)
+        if twist_success is not None:
+            break
+        logger.info("Sending twist stop command")
+        await asyncio.sleep(0.1)
+
+    # 2. E-stop the robot
+    can_client.request_reply("/estop", Empty())
+    logger.info("Robot e-stopped successfully.")
+
+
+if __name__ == "__main__":
+    asyncio.run(e_stop())
