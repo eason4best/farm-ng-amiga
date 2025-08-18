@@ -124,7 +124,7 @@ async def e_stop():
         await asyncio.sleep(0.1)
 
     # 2. E-stop the robot
-    can_client.request_reply("/estop", Empty())
+    await can_client.request_reply("/estop", Empty())
     logger.info("Robot e-stopped successfully.")
 
 
