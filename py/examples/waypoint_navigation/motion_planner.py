@@ -147,13 +147,12 @@ class MotionPlanner:
         """Transform hole coordinates to robot center coordinates."""
         robot_poses = {}
 
+        # For each hole, calculate the corresponding robot pose
         for idx, hole_pose in hole_poses.items():
-            # The loaded pose represents world_from_hole, but it came in as world_from_robot
-            # We need to fix the frame assignment first
             world_from_hole = Pose3F64(
-                a_from_b=hole_pose.a_from_b,  # Same transform
+                a_from_b=hole_pose.a_from_b,
                 frame_a="world",
-                frame_b="hole",  # Change frame_b to "hole"
+                frame_b="hole",
                 tangent_of_b_in_a=hole_pose.tangent_of_b_in_a,
             )
 
