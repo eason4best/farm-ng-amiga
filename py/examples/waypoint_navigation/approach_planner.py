@@ -49,7 +49,7 @@ class ApproachPlanner:
 
         # Thresholds
         self.LATERAL_THRESHOLD = 0.1  # 10 cm
-        self.MIN_LONGITUDINAL_DISTANCE = 5.0  # 5 m target distance
+        self.MIN_LONGITUDINAL_DISTANCE = 9.0  # 9 m target distance
         self.HEADING_THRESHOLD = np.radians(3)  # 3 degrees
         self.MIN_BACKUP_DISTANCE = 2.0  # Minimum distance before doing lateral correction
 

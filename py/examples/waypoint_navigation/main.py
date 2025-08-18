@@ -38,6 +38,7 @@ from farm_ng_core_pybind import Pose3F64
 from google.protobuf.empty_pb2 import Empty
 from motion_planner import MotionPlanner
 from utils.canbus import move_robot_forward
+from utils.canbus import stop_robot
 
 logger = logging.getLogger("Navigation Manager")
 
@@ -229,6 +230,9 @@ class NavigationManager:
             logger.error(f"❌ Error shutting down motion planner: {e}")
 
         logger.info("✅ Cleanup completed")
+
+        # Stop the robot
+        await stop_robot()
 
     def get_user_choice(self) -> str:
         """Get user input for navigation choice.
