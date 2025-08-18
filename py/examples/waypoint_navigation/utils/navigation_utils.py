@@ -30,6 +30,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Utils")
 
 
+def get_config(config_name: str) -> EventServiceConfig:
+    """Get the configuration for a given service."""
+    config_name = f"{config_name}_config.json"
+    og_path = Path(f"../configs/{config_name}")
+    alternative_path = Path(f"./configs/{config_name}")
+    config_path = og_path if og_path.exists() else alternative_path
+    return proto_from_json_file(config_path, EventServiceConfig())
+
+
 async def move_robot_forward(time_goal: float = 1.5) -> None:
     """Util function to move the robot forward in case it gets stuck.
 
@@ -40,8 +49,7 @@ async def move_robot_forward(time_goal: float = 1.5) -> None:
     twist = Twist2d(linear_velocity_x=0.7)
 
     # create a client to the canbus service
-    service_config_path = Path("./configs/canbus_config.json")
-    config: EventServiceConfig = proto_from_json_file(service_config_path, EventServiceConfig())
+    config = get_config("canbus")
     client: EventClient = EventClient(config)
     start = time.monotonic()
     # Hold the loop for the duration
@@ -62,8 +70,7 @@ async def stop_robot() -> None:
     MAX_RETRIES = 5
 
     # 1. Ensure we cancel any existing tracks
-    controller_config_path = Path("./configs/controller_config.json")
-    controller_config: EventServiceConfig = proto_from_json_file(controller_config_path, EventServiceConfig())
+    controller_config: EventServiceConfig = get_config("controller")
     controller_client: EventClient = EventClient(controller_config)
     controller_success: Optional[Empty] = None
 
@@ -82,8 +89,7 @@ async def stop_robot() -> None:
 
     # 2. Send a zero twist command to the can service to stop the robot
     twist = Twist2d(linear_velocity_x=0.0, angular_velocity=0.0)
-    canbus_config_path = Path("./configs/canbus_config.json")
-    can_config: EventServiceConfig = proto_from_json_file(canbus_config_path, EventServiceConfig())
+    can_config = get_config("canbus")
     can_client: EventClient = EventClient(can_config)
     twist_success: Optional[Empty] = None
     while twist_success is None:
@@ -102,17 +108,7 @@ async def e_stop():
     MAX_RETRIES = 5
     twist = Twist2d(linear_velocity_x=0.0, angular_velocity=0.0)
 
-    try:
-        canbus_config_path = Path("./configs/canbus_config.json")
-        can_config: EventServiceConfig = proto_from_json_file(canbus_config_path, EventServiceConfig())
-    except FileNotFoundError:
-        try:
-            canbus_config_path = Path("../configs/canbus_config.json")
-            can_config: EventServiceConfig = proto_from_json_file(canbus_config_path, EventServiceConfig())
-        except Exception as e:
-            raise RuntimeError(f"Couldn't find canbus config on neither location: {e}")
-    except Exception as e:
-        raise RuntimeError(f"Error loading canbus config: {e}")
+    can_config = get_config("canbus")
 
     can_client: EventClient = EventClient(can_config)
     twist_success: Optional[Empty] = None
