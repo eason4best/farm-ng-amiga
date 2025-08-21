@@ -20,6 +20,7 @@ import logging
 import signal
 import sys
 from pathlib import Path
+import time
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -245,6 +246,8 @@ class NavigationManager:
             logger.info(
                 "🚀 Either no stop mode enabled or going to the next row, automatically continuing to next waypoint"
             )
+            if "waypoint" in self.curr_segment_name:
+                time.sleep(7.0)
             return 'continue'
 
         logger.info("\n" + "=" * 50)

@@ -82,6 +82,7 @@ async def stop_robot() -> None:
         except Exception as e:
             logger.error(f"Error cancelling controller: {e}")
         if controller_success is not None:
+            logger.info("Potential tracks cancelled successfully.")
             break
         await asyncio.sleep(0.1)
     if controller_success is None:
