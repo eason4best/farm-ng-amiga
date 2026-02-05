@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 
 from pathlib import Path
-from typing import Union
+from typing import Union, Tuple, List
 
 from farm_ng.core.events_file_reader import proto_from_json_file
 from farm_ng.core.events_file_writer import proto_to_json_file
@@ -82,7 +82,7 @@ def compute_relative_position(
 
 
 def compute_global_position(
-    anchor: GpsFrame, relpos: tuple[float, float, float]
+    anchor: GpsFrame, relpos: Tuple[float, float, float]
 ) -> GpsFrame:
     """Computes the global position of a GPS frame given an anchor and a relative position.
 
@@ -110,7 +110,7 @@ def compute_global_position(
 
 
 
-def convert_track_to_local(track: Track, anchor: GpsFrame) -> list[Pose]:
+def convert_track_to_local(track: Track, anchor: GpsFrame) -> List[Pose]:
     """Converts a track with GPS waypoints to local NWU coordinates based on an anchor.
 
     Args:
@@ -120,7 +120,7 @@ def convert_track_to_local(track: Track, anchor: GpsFrame) -> list[Pose]:
     Returns:
         A list of Poses representing the waypoints in local NWU coordinates.
     """
-    poses: list[Pose] = []
+    poses: List[Pose] = []
 
     for i, wp in enumerate(track.waypoints):
         # Compute relative NWU position
@@ -161,4 +161,37 @@ def convert_track_to_local(track: Track, anchor: GpsFrame) -> list[Pose]:
 
     return poses
 
+def convert_track_to_global(track: Track, anchor: GpsFrame) -> Track:
+    """Converts a track with local poses (waypoints) and an anchor to global GPS coordinates (geojson_waypoints).
+        Assumes tracks contain only local waypoints or global geojson_waypoints - mix is not supported.
+
+    Args:
+        track: The track with relposned poses (waypoints)
+        anchor: The GPS frame to use as the origin.
+
+    Returns:
+       a Track with GPS waypoints (geojson_waypoints).
+    """
+    
+    # if track already uses geojson_waypoints, return as is
+    if len(track.geojson_waypoints) > 0:
+        return track
+
+    elif len(track.waypoints)>0 and len(track.geojson_waypoints) > 0:
+        raise ValueError("Track contains both waypoints and geojson_waypoints, cannot convert.")
+
+    else:
+        geojson_track = Track()
+
+        for wp in track.waypoints:
+            geojson_waypoint = compute_global_position(anchor, Tuple[
+                wp.a_from_b.translation.x,
+                wp.a_from_b.translation.y,
+                wp.a_from_b.translation.z
+                ]
+            )
+
+            geojson_track.append(geojson_waypoint)
+
+        return geojson_track
 

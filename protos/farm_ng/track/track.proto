@@ -28,9 +28,9 @@ message WaypointGeojson {
   // Longitude in degrees
   double longitude = 2;
   // Altitude in meters above WGS84 ellipsoid
-  optional double altitude = 3;
+  double altitude = 3;
   // Heading in degrees (0-360, clockwise from True North)
-  optional double heading = 4;
+  double heading = 4;
 }
 
 // A track is a sequence of waypoints that the robot should follow or already drove.
