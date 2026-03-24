@@ -1,0 +1,25 @@
+{
+  "configs": [
+    {
+      "name": "gps",
+      "port": 50010,
+      "host": "localhost",
+      "subscriptions": [
+        {
+          "uri": { "path": "*", "query": "service_name=gps" },
+          "every_n": 1
+        }
+      ]
+    },
+    {
+      "name": "track_follower",
+      "port": 20101,
+      "host": "localhost"
+    },
+    {
+      "name": "filter",
+      "port": 20001,
+      "host": "localhost"
+    }
+  ]
+}
