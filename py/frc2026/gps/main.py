@@ -15,7 +15,7 @@ async def main():
 
     try:
         await asyncio.gather(
-            controller.update_gps_task(),
+            controller.update_relative_position_task(),
             controller.start_mission()
         )
     except asyncio.CancelledError:

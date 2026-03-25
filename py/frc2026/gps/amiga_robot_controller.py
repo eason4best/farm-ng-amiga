@@ -23,14 +23,25 @@ class AmigaRobotController:
         config_list = proto_from_json_file(service_config_path, EventServiceConfigList())
         for config in config_list.configs:
             self.clients[config.name] = EventClient(config)
-        
-        self.current_gps = {"lat": 0.0, "lon": 0.0}
 
-    async def update_gps_task(self):
+        self.relative_pose_north = 0.0
+        self.relative_pose_east = 0.0
+        self.relative_pose_down = 0.0
+        self.relative_pose_length = 0.0
+        self.accuracy_north = 0.0
+        self.accuracy_east = 0.0
+        self.accuracy_down = 0.0
+
+    async def update_relative_position_task(self):
         async for _, msg in self.clients["gps"].subscribe(self.clients["gps"].config.subscriptions[0]):
-            if isinstance(msg, gps_pb2.GpsFrame):
-                self.current_gps["lat"] = msg.latitude
-                self.current_gps["lon"] = msg.longitude
+            if isinstance(msg, gps_pb2.RelativePositionFrame):
+                self.relative_pose_north = msg.relative_pose_north
+                self.relative_pose_east = msg.relative_pose_east
+                self.relative_pose_down = msg.relative_pose_down
+                self.relative_pose_length = msg.relative_pose_length
+                self.accuracy_north = msg.accuracy_north
+                self.accuracy_east = msg.accuracy_east
+                self.accuracy_down = msg.accuracy_down
 
     async def get_pose(self) -> Pose3F64:
         state: FilterState = await self.clients["filter"].request_reply("/get_state", Empty(), decode=True)
